@@ -108,8 +108,8 @@ def main():
             continue
         key = (str(w[0]), str(w[1]))
         if key in seen:                     # 20170803 and 20170803_full are one day
-            print(f"{name}: same record as a scene already queued, skipped")
-            continue
+            print(f"{name}: same record as a scene already queued; its met file "
+                  f"is written from the cache, at no further cost")
         seen.add(key)
         windows[name] = w
     if not windows:

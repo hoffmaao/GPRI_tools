@@ -204,3 +204,39 @@ def test_screen_without_a_wavelength_is_an_error():
     s = PhaseScreen([0.0], "constant", r, ramp=1e-3)
     with pytest.raises(ValueError, match="no wavelength"):
         screens_to_delta_n([s])
+
+
+# ------------------------------------------------------- stratification delay
+def test_stratified_delay_matches_a_uniform_path():
+    """With the target at the radar's height, the path is one temperature."""
+    from gpri_tools.refractivity import refractivity, stratified_delay
+    r, z0 = 5000.0, 1250.0
+    n = refractivity(875.0, 10.0, 0.6)
+    d = stratified_delay(r, z0, z0, 10.0, -6.0, 875.0, 0.6)
+    assert d == pytest.approx(1e-6 * n * r, rel=1e-6)
+
+
+def test_stratified_delay_grows_with_range_and_responds_to_the_lapse_rate():
+    from gpri_tools.refractivity import stratified_delay
+    args = dict(radar_height=1250.0, temperature_c=15.0, pressure_hpa=875.0,
+                relative_humidity=0.6)
+    near = stratified_delay(3000.0, 1800.0, lapse_c_per_km=-6.0, **args)
+    far = stratified_delay(9000.0, 1800.0, lapse_c_per_km=-6.0, **args)
+    assert far > near > 0
+    # an inversion is colder near the ground and denser air: more delay along a
+    # path that climbs, which is why it looks like motion
+    mixed = stratified_delay(7000.0, 2100.0, lapse_c_per_km=-6.0, **args)
+    inverted = stratified_delay(7000.0, 2100.0, lapse_c_per_km=+2.0, **args)
+    assert inverted > mixed
+    # tens of millimetres over that swing, not metres and not microns
+    assert 0.005 < inverted - mixed < 0.5
+
+
+def test_stratified_delay_is_vectorised_over_a_scene():
+    from gpri_tools.refractivity import stratified_delay
+    r = np.linspace(1000.0, 9000.0, 7)[None, :] * np.ones((3, 1))
+    z = np.linspace(1300.0, 2600.0, 3)[:, None] * np.ones((1, 7))
+    d = stratified_delay(r, z, 1250.0, 12.0, -5.0, 875.0, 0.65)
+    assert d.shape == (3, 7)
+    assert np.all(np.diff(d, axis=1) > 0)          # farther is always slower
+    assert np.isfinite(d).all()
