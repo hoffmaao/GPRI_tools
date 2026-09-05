@@ -155,6 +155,31 @@ def main():
         print(f"{name:34s}{a:12.2f}{b:16.3f}"
               f"{(a / b if abs(b) > 1e-9 else np.nan):10.0f}")
 
+    # ---- where the correction stops working -------------------------------
+    # A screen fitted on rock removes what it can see. Rock and ice do not
+    # occupy the same swath, so "referenced to bedrock" means interpolation
+    # over part of the glacier and extrapolation over the rest.
+    print(f"\nby range: what the rock-fitted screens leave on the ice")
+    print(f"{'range (km)':>12}{'rock px':>9}{'ice px':>9}{'raw ice':>10}"
+          f"{'after':>9}{'removed':>9}")
+    edges = np.arange(0.0, r.max() + 1000.0, 1000.0)
+    for a, b in zip(edges[:-1], edges[1:]):
+        inb = (r >= a) & (r < b)
+        m = inb & ice
+        if m.sum() < 20:
+            continue
+        raw_mm = np.median(raw[m]) * 1000
+        out_mm = np.median(full[m]) * 1000
+        print(f"{a / 1000:5.0f}-{b / 1000:<6.0f}{(inb & stable).sum():9d}"
+              f"{m.sum():9d}{raw_mm:10.1f}{out_mm:9.2f}"
+              f"{100 * (1 - abs(out_mm / raw_mm)):8.0f}%")
+    beyond = ice & (r > 7000)
+    print(f"\n  {100 * beyond.sum() / ice.sum():.0f}% of ice pixels are beyond "
+          f"7 km, where {(stable & (r > 7000)).sum()} of the {stable.sum():,} "
+          f"stable\n  pixels are: the screen is interpolated over the near "
+          f"glacier and extrapolated\n  over the far one, and the residual "
+          f"follows that and not the physics.")
+
     span = g_hi - g_lo
     ice_mm = np.median(full[ice]) * 1000
     rock_mm = np.median(full[held_m]) * 1000
