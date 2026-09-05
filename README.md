@@ -194,6 +194,14 @@ python examples/baker_seasons.py --scenes 20170713_full 20170803 20170827
 python examples/baker_seasons.py --detrend linear   # the same on per-pixel linear trends
 # what repeats hour to hour, for the campaigns that ran more than one day
 python examples/baker_composite.py --scenes 20170827 20180808 20190719
+# the weather beside the radar (SNOTEL + ERA5, a week either side, cached), and
+# what the ice does with it: the stratification forward model, the lag, the ice
+# against temperature, and which pixels carry the waveform
+python examples/baker_met.py
+python examples/baker_stratification.py --scene 20170803_full
+python examples/baker_lag.py --scenes 20170803_full 20180808 20190719
+python examples/baker_weather_plots.py --scenes 20170803_full 20180808 20190719
+for s in 20170803_full 20170827 20180808; do python examples/baker_pixels.py --scene $s; done
 ```
 
 `bin/run_scene.sh <scene> [upper|lower|both]` runs that whole chain for one

@@ -581,6 +581,309 @@ the figure vanishes there to say so. And that campaign's second day reaches
 −30 mm at 14 UTC, the largest excursion anywhere in the data set, which wants
 checking against that day's coherence before it is called ice.
 
+## The weather, and what the ice does with it
+
+The diurnal result has two readings, ice and air, and the radar cannot
+separate them on its own. `gpri_tools.met` downloads what the air was doing
+— hourly SNOTEL from the USDA/NRCS AWDB API and ERA5 surface fields through
+the Open-Meteo archive, neither needing credentials — and
+`examples/baker_met.py` caches a week either side of every campaign so a
+rerun costs nothing. Four SNOTEL stations sit within 20 km; MF Nooksack is
+0.8 km from the BakerBend1 tripod and 255 m above it, and between 930 and
+1506 m the four give what one thermometer cannot: a lapse rate on the
+radar's own clock, and with it the sign of the stratification. (SNOTEL
+stamps its hours in the station's standard time, UTC−8 here, and reports
+°F and inches; both are converted by what the API states rather than by
+assumption, and an hour a station left empty stays NaN rather than being
+interpolated into weather that was never measured.)
+
+The first look is the reason this matters. The three campaigns with the
+largest ice anomalies are the three with frequent temperature inversions —
+`20170803` inverted in 31 % of its epochs, `20180808` 27 %, `20170827`
+18 % — and every campaign that never inverted has an ice anomaly under 4 mm
+RMS. On the two strongest, held-out bedrock, which does not move, carries
+an anomaly correlated with the lapse rate at 0.79 and 0.78. Stratification
+survives the correction, then. How much of it can reach the glacier is a
+different question, and `gpri_tools.refractivity.stratified_delay` answers
+it by integrating Smith–Weintraub refractivity along the straight path to
+every pixel at its DEM height and slant range, through a hydrostatic
+atmosphere with the measured lapse rate and constant relative humidity;
+`examples/baker_stratification.py` runs that over a scene's real geometry
+and then puts the field through the same operators the chain applies —
+`epoch_screen_correction` fitted on the fit half of the bedrock, then
+`turbulence_screen` — because what matters is the part that survives being
+referenced to rock. For `20170803`, over the lapse rate's own p16-to-p84
+swing (−5.9 to +2.1 °C/km):
+
+| | ice | held-out rock |
+|---|---:|---:|
+| raw stratification delay | −55.2 mm | −33.3 mm |
+| + linear range screen on rock | −9.7 mm | +0.8 mm |
+| + turbulence screen on rock | −9.3 mm | +0.1 mm |
+| predicted, mm per °C/km | −1.16 | +0.013 |
+| observed, mm per °C/km | −2.35 | +0.160 |
+
+A uniform atmosphere with the measured lapse rate accounts for about half
+the ice slope, with the right sign, and reproduces the sign flip between
+ice and rock. `20180808` is the same at 50 %, `20170827` 95 %; the two
+campaigns that never inverted show ~0 observed slope where the model still
+predicts −0.7 to −0.9, so the model is not a complete description and its
+cross-campaign behaviour is flat where the data vary. One methodological
+point the table makes: the raw delay is only 1.7× larger on ice than on
+rock, and it is the rock-fitted correction that drives the rock residual to
+near zero. **A small rock anomaly is weak evidence that the atmosphere is
+small over the ice.**
+
+Where the correction stops working is a matter of coverage. By range bin on
+`20170803`, the modelled stratification residual on ice after both screens:
+
+| range (km) | rock px | ice px | raw ice | after | removed |
+|---|---:|---:|---:|---:|---:|
+| 4–5 | 829 | 91 | −29.5 mm | −1.95 mm | 93 % |
+| 5–6 | 2372 | 6002 | −33.4 | −0.82 | 98 % |
+| 6–7 | 2994 | 7974 | −44.3 | −0.73 | 98 % |
+| 7–8 | 286 | 7433 | −73.4 | −21.95 | 70 % |
+| 8–9 | 21 | 4109 | −110.9 | −52.73 | 52 % |
+| 9–10 | 1 | 322 | −157.2 | −92.56 | 41 % |
+
+Where rock is dense the correction removes 93–98 % of the delay. Beyond
+7 km it removes 41–70 %, and 46 % of the ice sits there against 308 of the
+7,697 stable pixels. Two further reasons a clean held-out bedrock does not
+certify the glacier: `split_mask` shuffles the stable pixels at random, so
+the held-out half is interleaved with the fitted half and measures
+interpolation error surrounded by constraints, never extrapolation over
+ice; and at matched range the ice sits only 30–77 m above the rock, so
+this is a coverage problem in range rather than a height-offset problem.
+
+A screen built from range and azimuth cannot express a delay that depends
+on how far the beam has climbed, which is exactly what a stratified
+atmosphere does, so `epoch_screen_correction` now takes per-pixel
+covariates — centred on the fitted pixels and appended to the design
+matrix — and `gpri_tools.heading.target_heights` supplies DEM height per
+radar pixel; `baker_population.py --height-screen` writes the result beside
+the standard products (`19_population_<scene>_hz.png`). On the modelled
+field the height term does what it should, removing 58 % of the
+stratification residual over the ice (−9.26 mm to −3.86 mm). On the real
+data it changes almost nothing: the `20170803_full` ice RMS goes from 10.94
+to 10.57 mm and `20180808` from 12.29 to 12.73, and the lapse-rate slope
+and correlation of the ice anomaly are untouched to two decimals (−2.35 →
+−2.28 mm per °C/km at r = −0.80). That is the useful result. If the
+observed anomaly were the stratification residual this geometry predicts,
+a screen that removes 58 % of that residual should have taken a large bite
+out of it; it took 3 %. The anomaly's dependence on the lapse rate is
+therefore not the geometric leakage the forward model describes — both are
+more likely driven by the same warm, settled, inverted weather, which is
+also when the glacier melts.
+
+![the ice against the air, 20170803](figures/22_weather_20170803_full.png)
+
+`examples/baker_weather_plots.py` draws the case (`22_weather_<scene>.png`):
+the ice anomaly and the air 0.8 km away as time series, then LOS velocity
+and displacement against temperature, coloured by hour of day, with
+held-out bedrock behind at the same scale. A response with no memory plots
+as a line; a delayed one plots as a loop whose width is the lag.
+
+Which is the other handle on the question. Meltwater has to reach the bed
+before it can raise the water pressure and let the glacier slide, so a
+melt-driven speed-up must peak after the forcing, while the delay a
+stratified atmosphere adds depends on the state of the air now.
+`examples/baker_lag.py` fits 24 h harmonics (`gpri_tools.diurnal.fit_harmonics`)
+to each campaign's population series and to the weather beside it and reports
+the phase difference — the phase, not the cross-correlation, because on a pair
+of diurnal signals a correlation searched over ±12 h always peaks in magnitude
+at the ends, where one has simply been inverted. The subtlety that decides the
+test: sliding is a velocity, but the population series is a displacement, so
+a melt-driven signal must show its displacement anomaly peaking a further
+quarter cycle — six hours — after the velocity. Measured on the three
+campaigns with the largest anomalies, the ice displacement peak sits +1.7,
++1.0 and −3.1 h behind the air temperature, and the ice velocity peak −0.4,
+−4.6 and −8.2 h behind it: in phase with the air to within a few hours, not
+six or more hours behind it, and the velocity peaking at or before the
+forcing rather than after. The caveats matter — 1.0 to 1.9 cycles per record,
+so the phase is loosely constrained; the velocity harmonics explain 0.09 to
+0.39 of the variance; and an efficient late-season channel network can route
+water to the bed in an hour or two, which this could not distinguish from
+zero.
+
+### Which ice carries the waveform
+
+There are real reasons a glacier's diurnal speed-up could grow with
+elevation — a distributed drainage system under the accumulation zone
+against efficient channels lower down, steeper ice — so the elevation
+dependence of the anomaly is not by itself evidence against motion.
+`examples/baker_pixels.py` asks the pixels. Every ice pixel's corrected
+series is projected onto the population waveform
+(`gpri_tools.diurnal.waveform_share`: a least-squares share, 1 for a pixel
+that moves like the median, 0 for one that does not move with it), and the
+share is binned by what is known per pixel — its own secular LOS rate, its
+DEM height, its slant range, its distance from the bedrock the screens are
+built on — with `gpri_tools.diurnal.slope_within` giving the fixed-effects
+version: how the share varies with one of these among pixels that agree on
+the others. The comparison with bedrock is made at two stages, after the
+range-linear epoch screen alone (B) and after the turbulence screen on top
+(C), because the turbulence screen interpolates whatever the rock still
+carries away from the rock and cannot do the same over the ice.
+
+![which ice carries the waveform, 20170803](figures/23_pixels_20170803_full.png)
+
+Three hypotheses make three predictions, and the pixels answer all three.
+
+**It is not the flow.** A fractional speed-up puts the share in proportion
+to each pixel's own secular rate, 0.24 per 10 m/yr through the origin here.
+At fixed range and height the measured slope is +0.005 per 10 m/yr
+(r = +0.02, 54 cells, 25,891 pixels); ice moving under 5 m/yr carries 0.76
+of the waveform; and the 2,372 pixels flowing *away* from the radar at −5
+to −30 m/yr carry +1.13 — the same sign as the ice flowing towards it,
+where any modulation of the flow, proportional or not, whatever its
+elevation dependence, would carry the waveform inverted. The two other
+campaigns past one cycle agree (`20170827` −0.015 per 10 m/yr, `20180808`
++0.067). A vertical motion would have one sign everywhere, but the wrong
+one: the ice comes *towards* the radar in the afternoon, which for a radar
+below the glacier is subsidence at the hour hydraulic jacking lifts a
+glacier, and 35 mm of LOS at this geometry's vertical sensitivity would be
+decimetres of it.
+
+**It does grow up-glacier, and most of that is not the atmosphere.** The
+share is 0.03 at 1400–1600 m and 0.4 at 5–6 km, rising to 1.3–1.5 above
+2200 m and beyond 7 km, in every campaign. Range and height are collinear
+along a glacier, and which of them organises the share flips between
+campaigns (range at fixed height on `20170803_full` and `20180808`, +0.48
+and +0.32 per km; height at fixed range on `20170827`, +0.11 per 100 m),
+so the pixels cannot say which. What the held-out bedrock at the same
+range and height carries is the atmospheric part. At stage B, before
+anything interpolates it away, bedrock at 7–8 km carries +0.52 of the
+waveform (147 pixels; +0.38 at 2200–2400 m) against 1.38 on the ice there;
+at 6–7 km it carries +0.02 against 0.94; at 5–6 km −0.18 against 0.39. So
+at the far end of the swath roughly 40 % of the ice's share is the curved
+residual a linear range screen leaves, and the turbulence screen removes
+it from the rock (0.08) but not from the ice (1.37); between 6 and 7 km
+the ice's share is all its own. The effect also stops at the ice edge:
+held-out bedrock within half a screen sigma of the glacier carries +0.09
+at 6–7 km and +0.33 at 7–8 km, ice within half a sigma of bedrock 0.64 and
+1.14, adjacent pixels whose beams share all but the last hundred metres of
+air.
+
+**The surface itself changes over the day.** The SLCs carry the surface's
+brightness as well as its phase
+(`SlcPairStack.backscatter`, the fit-half bedrock's median taken out of
+every frame as the instrument's gain, which drifts ~1.5 dB over a day).
+On `20170803_full` the ice above 2600 m swings 3.5 dB peak to peak —
+1 dB below its mean through the warm afternoon, 1.6 dB above it at 07:00–
+08:00 local, falling sharply again from 08:00 to 13:30 — the signature of
+snow that wets by day and refreezes by night at Ku band; 2200–2600 m
+swings 1.8 dB, the bare ice below 2200 m 1.0 dB, held-out bedrock
+0.34 dB. `20170827` keeps that clock for two days — brightest at
+06:30–08:00 local, darkest at 21:00–22:30, 2.6 dB peak to peak above
+2600 m — while its anomaly peaks late in the morning rather than the
+afternoon; `20180808` swings only 1.3 dB there, and its brightest hour on
+the first day is 18:00 local, the anomaly's own peak. This is the same ice
+that carries the waveform, and on `20170803_full` the waveform
+has the sign a wet surface gives: a phase centre at the surface by day,
+inside a refrozen crust by night. But per pixel the two do not go
+together — at fixed range and height the share is independent of a
+pixel's own brightness cycle (+0.02 per dB/10 mm, r = +0.01), although
+that cycle varies ten times more from pixel to pixel than its noise — and
+the timing is imperfect: the phase trough leads the brightest, driest
+surface by about four hours and the afternoon recovery lags the wetting
+by two or three.
+
+What the pixels leave standing, then, is a signal that is real, sits on
+the ice and not in the air over it, grows up the glacier, has one sign
+whichever way the ice flows, is in phase with the air temperature, and is
+too large and too early to be the glacier moving. A change in the snow
+surface's dielectric state is the one candidate consistent with all of
+that; the per-pixel brightness test is the mark against its simplest
+form. The next discriminators are cheap: the July campaign (`20190719`),
+which showed a third of August's composite and no inversions, should show
+no refreeze cycle in its backscatter, and a campaign with nights that
+never freeze should show neither.
+
+### What the Ku-band literature says
+
+Nobody has reported a diurnal apparent-displacement cycle from melt and
+refreeze under a GPRI, but every piece of the mechanism is published, and
+the instrument's own community has read its brightness this way before.
+
+GPRI intensity and coherence have mostly been used for things other than
+the surface's dielectric state: iceberg and mélange tracking on the
+intensity ([Voytenko et al. 2015](https://doi.org/10.3189/2015JoG14J099),
+[Xie et al. 2019](https://doi.org/10.1038/s41467-019-10908-4)), the loss
+of coherence as a clock for mélange break-up
+([Cassotto et al. 2021](https://doi.org/10.1038/s41561-021-00754-9)),
+calving, rockfall and avalanche mapping by decorrelation
+([Walter et al. 2020](https://doi.org/10.5194/tc-14-1051-2020),
+[Caduff et al. 2015b](https://doi.org/10.1002/esp.3656)), sea-ice strain
+([Dammann et al. 2021](https://doi.org/10.3390/rs13010043)), land cover
+and ship tracking in GAMMA's own
+[information sheet](https://www.gamma-rs.ch/uploads/media/Instruments_Info/GPRI/information/GAMMA_GPRI_information.pdf).
+The two glacier-velocity papers closest to this one are cautionary.
+[Allstadt et al. 2015](https://doi.org/10.5194/tc-9-2219-2015), at Mount
+Rainier with 21–24 h records, saw subtle changes that "may reflect actual
+diurnal velocity variability" but "cannot interpret these with
+confidence", and used the intensity only as a backdrop;
+[Riesen et al. 2011](https://doi.org/10.3189/002214311795306718), on
+Gornergletscher, watched 5 cm/day of melt destroy daytime coherence in
+anything longer than a two-hour interferogram. The one terrestrial
+Ku-band study that did establish a diurnal glacier speed-up —
+[Liu et al. 2019](https://doi.org/10.1017/jog.2019.1), IBIS-L at
+Laohugou No. 12, over 3 mm/h by day against under 1 mm/h at night — did it
+on corner reflectors checked against differential GPS, a control this
+experiment does not have.
+
+The snow work is the direct precedent.
+[Wiesmann, Caduff & Mätzler 2015](https://doi.org/10.1109/JSTARS.2015.2400972)
+used the GPRI to watch "rapid and local changes in snow parameters such
+as changes in the liquid water content";
+[Caduff et al. 2015a](https://doi.org/10.1002/2014GL062442) lost
+coherence within about fifteen minutes of a snow surface wetting and
+followed temperature-driven diurnal glide cycles through it.
+[Baffelli, Frey & Hajnsek 2019](https://doi.org/10.1109/JSTARS.2019.2953206),
+with the polarimetric KAPRI on Bisgletscher in July, saw diurnal
+backscatter variations on the glacier "probably related to changes in
+the ice surface water content, which in turn are correlated with solar
+radiation", with Ku-band penetration into wet ice near zero against
+metres into dry snow;
+[Stefko et al. 2022](https://doi.org/10.5194/tc-16-2859-2022) put the
+scattering mean free path in dry snow at 17.2 GHz at 0.4 m and the
+absorption length at 19 m;
+[Frey et al. 2015](https://doi.org/10.5270/fringe2015.pp37), tomography
+with SnowScat, resolved melt–freeze crusts and the ground through a dry
+snowpack and found "virtually no penetration into the snowpack" once its
+surface had melted. The older physics agree: backscatter falls with
+wetness, the more so at higher frequency and steeper incidence
+([Stiles & Ulaby 1980](https://doi.org/10.1029/JC085iC02p01037)); at
+35 GHz it depends on the surface's liquid water and on the thickness of
+the refrozen crust
+([Strozzi & Mätzler 1998](https://doi.org/10.1109/36.673677)); and the
+diurnal backscatter difference is how QuikSCAT maps melt and refreeze
+([Nghiem et al. 2001](https://doi.org/10.3189/172756501781831738)).
+
+That the phase centre moves with the crust is also on record.
+[Nilsson et al. 2015](https://doi.org/10.1002/2015GL063296) saw a
+refrozen melt layer raise CryoSat-2's Ku-band scattering horizon by
+56 ± 26 cm over Greenland;
+[Guneriussen et al. 2001](https://doi.org/10.1109/36.957273) showed that
+a change in dry snow produces an interferometric phase that "may wrongly
+be interpreted as range displacement" while the coherence stays high;
+[Leinss et al. 2015](https://doi.org/10.1109/JSTARS.2015.2432031) turned
+that into a snow-water-equivalent product at Ku and X band and note that
+wet-snow coherence decays within hours, and
+[Luzi et al. 2009](https://doi.org/10.1109/TGRS.2008.2009994) tracked a
+growing snowpack with a Ku-band ground radar's phase.
+
+Against that record the Baker signal reads consistently. The ±1 dB
+cycle in the upper glacier's brightness, dark by day and bright at dawn,
+is the melt–refreeze signature Nghiem and Baffelli describe; a scattering
+horizon that sits at a wet surface by day and inside a refrozen crust by
+night moves the phase centre away from the radar overnight, the sign of
+the trough, and the 35 mm of line-of-sight it takes puts that horizon,
+at snow's refractive index, some 3 cm down — a night's refreeze; and the
+share's rise from 0.03 at 1400–1600 m to 1.4 above 2200 m follows the
+early-August snowline. What the literature does not supply is a reason
+the share should be independent of a pixel's own brightness cycle, which
+is where the simplest version of this fails and where the July campaign
+comes in.
+
 ## Movies of the deformation field
 
 `examples/baker_movie.py` renders the corrected LOS field as an MP4 in the

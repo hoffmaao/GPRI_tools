@@ -326,3 +326,15 @@ def test_slc_pairs_mean_intensity_is_a_backdrop(slc_scene):
     two = st.mean_intensity(max_epochs=2)                   # first and last
     first_last = np.mean([np.abs(st.read_slc(e)) ** 2 for e in (0, st.n_epochs - 1)], axis=0)
     np.testing.assert_allclose(two, first_last, rtol=1e-5)
+
+
+def test_backscatter_is_the_multilooked_intensity_in_db(slc_scene):
+    from gpri_tools.gamma import read_image
+    st = SlcPairStack.from_tab(slc_scene / "SLCu_tab")
+    s = read_image(slc_scene / "slc" / f"{IDS[2]}.slc")
+    db = st.backscatter(2, looks=(1, 4))
+    assert db.shape == (BIG[0], BIG[1] // 4) and db.dtype == np.float32
+    want = 10 * np.log10((np.abs(s) ** 2)[:, : BIG[1] // 4 * 4]
+                         .reshape(BIG[0], BIG[1] // 4, 4).mean(-1))
+    np.testing.assert_allclose(db, want, rtol=1e-5)
+    np.testing.assert_allclose(st.backscatter(2), 10 * np.log10(np.abs(s) ** 2), rtol=1e-5)

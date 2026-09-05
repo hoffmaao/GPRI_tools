@@ -353,3 +353,40 @@ def test_rates_are_reported_in_metres_per_year():
     assert m_per_yr(1.0) == pytest.approx(365.25)
     assert m_per_yr(67.0, "mm") == pytest.approx(24.47, abs=0.01)
     assert m_per_yr([0.0, -0.002]).tolist() == pytest.approx([0.0, -0.7305])
+
+
+def test_waveform_share_recovers_each_pixels_amplitude():
+    from gpri_tools.diurnal import waveform_share
+    rng = np.random.default_rng(3)
+    t = np.linspace(0, 1, 200)
+    template = 10 * np.cos(2 * np.pi * t)
+    amp = np.array([[0.0, 0.5], [1.0, 2.0]])
+    series = amp[None] * template[:, None, None] + 0.5 * rng.normal(size=(200, 2, 2))
+    series[10:20, 0, 0] = np.nan                       # a gap is ignored
+    share, se = waveform_share(series, template)
+    np.testing.assert_allclose(share, amp, atol=0.03)
+    assert np.all(se < 0.02) and np.all(se > 0)
+    with pytest.raises(ValueError):
+        waveform_share(series[:-1], template)
+
+
+def test_slope_within_holds_the_binned_variables_fixed():
+    from gpri_tools.diurnal import slope_within
+    rng = np.random.default_rng(4)
+    n = 4000
+    r = rng.uniform(4, 9, n)                    # range, km
+    v = 20 * (r - 4) + rng.normal(0, 10, n)     # speed grows with range
+    y = 0.3 * r + 0.001 * rng.normal(size=n)   # ... but the share follows range only
+    cell = np.floor(r / 0.1)        # fine enough that range is fixed within
+    slope, corr, cells, px = slope_within(y, v, cell, min_count=30)
+    assert abs(slope) < 0.0005 and abs(corr) < 0.1     # no residual link to speed
+    assert cells > 40 and px > 3500
+    # a plain regression would have blamed the speed
+    assert np.corrcoef(y, v)[0, 1] > 0.8
+    # and a genuine within-cell dependence is found
+    y2 = y + 0.01 * v
+    slope2, corr2, *_ = slope_within(y2, v, cell, min_count=30)
+    assert slope2 == pytest.approx(0.01, rel=0.05) and corr2 > 0.9
+    assert np.isnan(slope_within(y, v, cell, min_count=10 ** 6)[0])
+    with pytest.raises(ValueError):
+        slope_within(y, v[:-1], cell)
