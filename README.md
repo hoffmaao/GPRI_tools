@@ -46,6 +46,9 @@ psinterp/      PS-interpolation unwrapping over decorrelated ground
 timeseries/    network inversion, stacking, LOS displacement
 pairlsq/       single-step pair-domain weighted least squares, with uncertainties
 diurnal/       harmonic analysis, and telling ice from atmosphere
+met/           SNOTEL and ERA5 beside the radar, on the radar's clock
+melt/          surface wetness from the backscatter: hourly means, each pixel's
+               diurnal swing and clock, brightness against the air
 geocode/       polar radar geometry to a local stereographic map frame
 heading/       the scan heading, measured from a DEM's shadows
 coregister/    azimuth offsets of a campaign whose tripod turned
@@ -98,7 +101,9 @@ capability above was built for, and it is the only example in this repository.
 - [`docs/baker.md`](docs/baker.md) — the analysis and what it found: the
   atmospheric ladder scored on held-out bedrock, the RGI reference audit, the
   per-pixel diurnal null, the population night-time trough, three two-cycle
-  campaigns and whether the diurnal repeats from one year to the next.
+  campaigns, whether the diurnal repeats from one year to the next, the
+  weather beside the radar, which ice carries the waveform, and the
+  surface's brightness read as a melt gauge.
 - [`docs/campaigns.md`](docs/campaigns.md) — the campaign inventory, the
   measured scan headings and the per-campaign processing notes.
 - [`docs/atmosphere.md`](docs/atmosphere.md) — the correction ladder in full.
@@ -201,7 +206,11 @@ python examples/baker_met.py
 python examples/baker_stratification.py --scene 20170803_full
 python examples/baker_lag.py --scenes 20170803_full 20180808 20190719
 python examples/baker_weather_plots.py --scenes 20170803_full 20180808 20190719
-for s in 20170803_full 20170827 20180808; do python examples/baker_pixels.py --scene $s; done
+CAMPAIGNS="20170713_full 20190719 20170913 20170803_full 20170827 20180808"
+for s in $CAMPAIGNS; do python examples/baker_pixels.py --scene $s; done
+# the surface's brightness as a melt gauge, per campaign and side by side
+for s in $CAMPAIGNS; do python examples/baker_melt.py --scene $s; done
+python examples/baker_melt.py --campaigns $CAMPAIGNS
 ```
 
 `bin/run_scene.sh <scene> [upper|lower|both]` runs that whole chain for one

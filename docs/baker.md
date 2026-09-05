@@ -735,9 +735,10 @@ At fixed range and height the measured slope is +0.005 per 10 m/yr
 of the waveform; and the 2,372 pixels flowing *away* from the radar at −5
 to −30 m/yr carry +1.13 — the same sign as the ice flowing towards it,
 where any modulation of the flow, proportional or not, whatever its
-elevation dependence, would carry the waveform inverted. The two other
-campaigns past one cycle agree (`20170827` −0.015 per 10 m/yr, `20180808`
-+0.067). A vertical motion would have one sign everywhere, but the wrong
+elevation dependence, would carry the waveform inverted. The other five
+campaigns agree: −0.08 to +0.08 per 10 m/yr at fixed range and height,
+and the ice flowing away from the radar carries +1.0 to +1.7 in every one
+of them. A vertical motion would have one sign everywhere, but the wrong
 one: the ice comes *towards* the radar in the afternoon, which for a radar
 below the glacier is subsidence at the hour hydraulic jacking lifts a
 glacier, and 35 mm of LOS at this geometry's vertical sensitivity would be
@@ -793,10 +794,16 @@ whichever way the ice flows, is in phase with the air temperature, and is
 too large and too early to be the glacier moving. A change in the snow
 surface's dielectric state is the one candidate consistent with all of
 that; the per-pixel brightness test is the mark against its simplest
-form. The next discriminators are cheap: the July campaign (`20190719`),
-which showed a third of August's composite and no inversions, should show
-no refreeze cycle in its backscatter, and a campaign with nights that
-never freeze should show neither.
+form. That form — a phase centre at a wet surface by day and inside a
+refrozen crust by night — makes a prediction the other campaigns can
+test: the anomaly should be largest where the surface cycles between wet
+and refrozen, and absent where it never freezes. The weather says which
+campaigns those are. Carried up from MF Nooksack at −6.5 °C/km, the air
+at 2600 m never fell below 11 °C in any of the three August records,
+while `20190719` in July — the campaign with a third of August's composite
+and no inversions — spent 23 % of its hours below freezing there, and
+`20170713_full` and `20170913` sat within a degree or two of it. The
+test is run below, after the literature.
 
 ### What the Ku-band literature says
 
@@ -881,8 +888,141 @@ at snow's refractive index, some 3 cm down — a night's refreeze; and the
 share's rise from 0.03 at 1400–1600 m to 1.4 above 2200 m follows the
 early-August snowline. What the literature does not supply is a reason
 the share should be independent of a pixel's own brightness cycle, which
-is where the simplest version of this fails and where the July campaign
-comes in.
+is where the simplest version of this fails and where the cool campaigns
+come in.
+
+### The brightness as a melt gauge
+
+If the surface's wetness is what the radar is reading, the radar's own
+brightness should be able to say how wet, when, and how high up.
+`gpri_tools.melt` and `examples/baker_melt.py` make that measurement per
+pixel. Every frame's backscatter is referenced to the fit-half bedrock's
+median (the receiver's gain: 0.9–2.1 dB of drift over a record, 10 dB on
+`20170713_full`) and folded into hourly
+means as it streams past (`BinAccumulator`, so a two-day stack never has
+to exist in memory); a diurnal sinusoid is then fitted to each pixel's
+hourly series (`diurnal_harmonic`), because the max-minus-min swing of a
+speckled pixel is mostly speckle — held-out bedrock "swings" 1.2–2.8 dB
+that way against 0.6–1.3 dB of fitted peak to peak, which is the noise
+floor an ice pixel has to clear. The lag-1 coherence is binned the same
+way, and every pixel's hourly brightness is put against the air at its
+own DEM height (`air_temperature_at`, MF Nooksack carried up at
+−6.5 °C/km) to give a transfer curve per height band
+(`transfer_curve`). Results are cached per campaign
+(`$GPRI_WORK_ROOT/<scene>/melt_u_dec16.npz`), the figure is
+`figures/24_melt_<scene>.png`, and `--campaigns` puts the six together.
+
+![the brightness as a melt gauge, 20190719](figures/24_melt_20190719.png)
+
+In the cool campaigns the gauge reads cleanly, and it reads like a
+thermometer. On `20190719` the ice above 1800 m swings 5.4–7.0 dB peak to
+peak in the band composites (1.6–5.0 dB per pixel, against bedrock's
+0.9), darkest at 11:30–12:30 local below 2600 m and brightest at
+09:30–10:30, and the darkening walks up the mountain through the
+morning: the 1800–2600 m bands start to fall at 08:00, the ice above
+2600 m holds its dawn brightness until noon and then drops 6.8 dB to a
+trough at 20:30, and the lag-1 coherence follows the water down —
+0.92 at dawn on the upper glacier, 0.62–0.66 by evening, while bedrock
+stays above 0.85. Against the air at the pixel's height the brightness
+between 1800 and 2600 m falls at −0.11 to −0.26 dB/°C with r = −0.77 to
+−0.91 on the one-day records (`20170713_full` 1800–2200 m: −0.234 dB/°C,
+r = −0.91; `20170913`: −0.255, r = −0.88) and at −0.15 to −0.26 dB/°C
+with r = −0.30 to −0.58 over the two days of `20190719`, the looser fit
+being hysteresis: the surface is darker on the way down through a given
+temperature than on the way up. Above 2600 m the curve is flat, because
+the extrapolated air there is near 0 °C while the surface plainly melts —
+that band is radiation-driven — and by mid-September it barely cycles at
+all (0.69 dB on `20170913`): the top of the mountain had stopped melting.
+Bedrock's transfer curve is flat everywhere, −0.01 dB/°C.
+
+In the warm campaigns the gauge saturates. Below 2600 m the brightness is
+flat — 0.6–1.5 dB in the composites, 0.8–1.1 dB per pixel against
+bedrock's 0.6–1.0, correlated *positively* with the air if at all
+(+0.01 to +0.08 dB/°C) — which is what bare ice and firn that never
+drains look like at Ku band: once the top centimetres hold a few percent
+of water the penetration is already centimetres and more water changes
+little. Only the snow above 2600 m still cycles, 3.2 dB on
+`20170803_full` (darkest 13:30, brightest 07:30, −0.14 dB/°C, r = −0.55),
+2.4 dB on `20170827`, and 1.0 dB on `20180808` — 0.99 dB per pixel
+against a bedrock floor of 0.97: no cycle at all. The coherence says the
+same. On `20180808` the upper glacier's lag-1 coherence sits at
+0.68–0.83 day and night, lowest at midday, where `20190719`'s reached
+0.92 every dawn.
+
+![six campaigns: the brightness cycle against the displacement anomaly](figures/25_melt_campaigns.png)
+
+Put beside the displacement anomaly, this is the test the refreeze
+hypothesis fails. The table is the per-pixel median peak to peak and
+trough hour of the ice above 2600 m, and the air at 2600 m
+(`baker_melt.py --campaigns`):
+
+| campaign | hours | anomaly RMS (mm) | swing above 2600 m (dB) | darkest (local) | air at 2600 m (°C) | hours below 0 °C | positive degree-hours |
+|---|---|---|---|---|---|---|---|
+| `20170913` | 15 | 1.3 | 1.9 | 15:36 | 2.7 (1.3–5.5) | 0 % | 40 |
+| `20190719` | 46 | 3.7 | 5.0 | 19:12 | 3.9 (−1.3–8.7) | 23 % | 178 |
+| `20170713_full` | 24 | 4.1 | 4.6 | 17:18 | 2.4 (0.5–8.0) | 0 % | 58 |
+| `20170827` | 45 | 7.9 | 1.3 | 17:48 | 13.8 (12.1–17.0) | 0 % | 623 |
+| `20170803_full` | 25 | 10.9 | 2.0 | 17:30 | 13.3 (11.6–16.6) | 0 % | 331 |
+| `20180808` | 42 | 12.3 | 1.0 | — | 14.0 (11.0–16.8) | 0 % | 588 |
+
+The anomaly is largest where the surface never freezes, never drains
+and hardly changes brightness (12.3 mm with a 1.0 dB "cycle" at the noise
+floor), and smallest where the wet–dry cycle is strongest (3.7–4.1 mm
+with 4.6–5.0 dB); across the six it tracks the warmth — 1.3–4.1 mm at
+40–178 positive degree-hours, 7.9–12.3 mm at 331–623 — and not the
+refreeze, which only two of the six had at all. Epoch by epoch the
+upper glacier's brightness and the waveform do not even agree on a sign
+between campaigns (r = −0.48 to +0.51). So the melt–refreeze cycle is
+not what the anomaly is, and the brightness is not its gauge: whatever
+it is scales with how much the surface melts, not with whether it
+refreezes, and it is present on ice whose brightness and coherence say it
+is wet around the clock. The literature's phase centre inside a
+refrozen crust is the wrong version of the dielectric story for this
+mountain.
+
+Two things narrow what is left. The first is the far end of the swath.
+The 36–38 held-out bedrock pixels the outline leaves above 2600 m, at
+7.6–8.0 km, carry the waveform — 1.3 on `20180808`, 1.7 on `20190719`,
+2.7 on `20170913`, 0.4–0.5 in the three 2017 summer records — and their
+brightness does not cycle at all (0.5–0.8 dB, the rock floor), so what
+they carry is not a snow surface's. In the two cool multi-hour records it
+is as much as the ice at the same height carries (1.6 and 2.4), in the
+warm ones a third of it. That is the curved residual the linear range
+screen leaves at the far end, seen from the rock once more, and it means
+the steepest part of the up-glacier growth — the share above ~2400 m and
+beyond ~7.5 km — is partly (August) or wholly (July, September) the
+air's. The ice-specific signal is the part between 5 and 7 km, where
+1,000–1,700 held-out bedrock pixels at the same range carry nothing after
+the screens (−0.12 to +0.04): the ice at 6–7 km carries 0.77–1.35 of its
+campaign's waveform in all six
+records, which is 1.0–5.5 mm in the cool campaigns and 7.4–10.8 mm in the
+warm ones, on ice whose brightness swings 1 dB or less in August. The
+second is geometry. A melting surface goes down, fastest in the afternoon,
+and after the secular trend is removed that is a sawtooth with the sign
+the anomaly has for any surface flatter than the beam — a lowering target
+above the radar comes towards it, at a vertical sensitivity that grows
+from 0.05 at the snout to 0.20 at 3000 m. But 38 mm peak to peak at that
+sensitivity needs a fifth of a metre of diurnal lowering *residual*,
+0.4 m of surface a day, two to six times what melt removes on a hot day;
+the sensitivity grows fourfold up the glacier where the share grows
+sixty-fold and the melt that would drive it shrinks; and on the upper
+slopes that face the radar more steeply than the 7–10° beam a receding
+surface moves *away*, so the sign could not be uniform. Ablation lowering
+is the wrong size and the wrong shape.
+
+What survives is the version of the dielectric hypothesis the brightness
+cannot see: a surface that is wet day and night, whose *water content*
+still cycles with the melt — saturated by afternoon, drained but not dry
+by dawn — so that the Ku-band scattering horizon moves by centimetres
+while the backscatter, already saturated, hardly moves at all. That
+predicts a signal that scales with the melt rate rather than the
+refreeze, sits on the ice and not the rock, keeps one sign whichever way
+the ice flows, and is in phase with the air, which is the list the pixels
+left standing; the midday dip in `20180808`'s coherence is the one mark
+in its favour the radar itself provides. What it needs to be checked
+against is a measured liquid-water profile on the glacier, which this
+experiment does not have and a later one could — a snow pit's dielectric
+probe on the upper Coleman during a warm campaign would settle it.
 
 ## Movies of the deformation field
 
