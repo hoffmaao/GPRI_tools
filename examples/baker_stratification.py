@@ -64,6 +64,9 @@ def main():
     ap.add_argument("--stable-coherence", type=float, default=0.85)
     ap.add_argument("--ice-coherence", type=float, default=0.5)
     ap.add_argument("--sigma", type=float, nargs=2, default=(5.0, 25.0))
+    ap.add_argument("--height-term", action="store_true",
+                    help="fit the screen with target height as a covariate as "
+                         "well as slant range, and report both")
     ap.add_argument("--cc-stride", type=int, default=20,
                     help="use every Nth pair for the mean coherence (default 20)")
     args = ap.parse_args()
@@ -137,20 +140,30 @@ def main():
     # positive toward the radar, so it is minus the delay change
     disp = -(d_hi - d_lo)                                  # metres
 
+    def ladder(covariates=None):
+        lin, _ = epoch_screen_correction(disp[None], fit_m, r_cols,
+                                         model="linear", weights=mean_cc,
+                                         covariates=covariates)
+        lin = lin[0]
+        scr, _ = turbulence_screen(lin, fit_m, sigma=tuple(args.sigma),
+                                   weights=mean_cc, wrapped=False)
+        return lin, lin - scr
+
     raw = disp.copy()
-    lin, _ = epoch_screen_correction(disp[None], fit_m, r_cols, model="linear",
-                                     weights=mean_cc)
-    lin = lin[0]
-    scr, _ = turbulence_screen(lin, fit_m, sigma=tuple(args.sigma),
-                               weights=mean_cc, wrapped=False)
-    full = lin - scr
+    lin, full = ladder()
+    if args.height_term:
+        lin_z, full_z = ladder({"height": z})
 
     print(f"\napparent LOS displacement from the lapse rate going "
           f"{g_lo:+.2f} -> {g_hi:+.2f} °C/km, mm (+ toward radar)")
     print(f"{'stage':34s}{'ice':>12}{'held-out rock':>16}{'ice/rock':>10}")
-    for name, field in (("A  the raw stratification delay", raw),
-                        ("C  + linear range screen on rock", lin),
-                        ("D  + turbulence screen on rock", full)):
+    stages = [("A  the raw stratification delay", raw),
+              ("C  + linear range screen on rock", lin),
+              ("D  + turbulence screen on rock", full)]
+    if args.height_term:
+        stages += [("C' + range and HEIGHT screen", lin_z),
+                   ("D' + turbulence screen on rock", full_z)]
+    for name, field in stages:
         a, b = np.median(field[ice]) * 1000, np.median(field[held_m]) * 1000
         print(f"{name:34s}{a:12.2f}{b:16.3f}"
               f"{(a / b if abs(b) > 1e-9 else np.nan):10.0f}")
@@ -161,7 +174,8 @@ def main():
     # over part of the glacier and extrapolation over the rest.
     print(f"\nby range: what the rock-fitted screens leave on the ice")
     print(f"{'range (km)':>12}{'rock px':>9}{'ice px':>9}{'raw ice':>10}"
-          f"{'after':>9}{'removed':>9}")
+          f"{'after':>9}{'removed':>9}"
+          + (f"{'+height':>11}{'removed':>9}" if args.height_term else ""))
     edges = np.arange(0.0, r.max() + 1000.0, 1000.0)
     for a, b in zip(edges[:-1], edges[1:]):
         inb = (r >= a) & (r < b)
@@ -170,9 +184,13 @@ def main():
             continue
         raw_mm = np.median(raw[m]) * 1000
         out_mm = np.median(full[m]) * 1000
+        tail = ""
+        if args.height_term:
+            zz = np.median(full_z[m]) * 1000
+            tail = f"{zz:11.2f}{100 * (1 - abs(zz / raw_mm)):8.0f}%"
         print(f"{a / 1000:5.0f}-{b / 1000:<6.0f}{(inb & stable).sum():9d}"
               f"{m.sum():9d}{raw_mm:10.1f}{out_mm:9.2f}"
-              f"{100 * (1 - abs(out_mm / raw_mm)):8.0f}%")
+              f"{100 * (1 - abs(out_mm / raw_mm)):8.0f}%{tail}")
     beyond = ice & (r > 7000)
     print(f"\n  {100 * beyond.sum() / ice.sum():.0f}% of ice pixels are beyond "
           f"7 km, where {(stable & (r > 7000)).sum()} of the {stable.sum():,} "

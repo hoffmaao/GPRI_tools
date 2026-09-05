@@ -62,11 +62,16 @@ from gpri_tools.diurnal import (DIURNAL, MIN_CYCLES, hour_composite,     # noqa:
 from gpri_tools.timeseries import los_displacement                       # noqa: E402
 
 
-def population_path(scene: Path, antenna: str, dec: int) -> Path:
-    """Where the population series of one scene/antenna are cached."""
+def population_path(scene: Path, antenna: str, dec: int, height_screen=False) -> Path:
+    """Where the population series of one scene/antenna are cached.
+
+    A run with the height covariate writes beside the standard one rather than
+    over it, so the two can be compared.
+    """
     import os
     root = Path(os.environ.get("GPRI_WORK_ROOT", "work"))
-    return root / scene.name / f"population_{antenna[0].lower()}_dec{dec}.npz"
+    tag = "_hz" if height_screen else ""
+    return root / scene.name / f"population_{antenna[0].lower()}_dec{dec}{tag}.npz"
 
 
 def detrend_pixels(t, d):
@@ -109,6 +114,10 @@ def main():
     ap.add_argument("--window", type=float, default=24.0,
                     help="length of each single-day window, hours")
     ap.add_argument("--antenna", default="upper", choices=("upper", "lower"))
+    ap.add_argument("--height-screen", action="store_true",
+                    help="fit the epoch screen with target height (from "
+                         "GPRI_DEM) as a covariate beside slant range, and "
+                         "write the result beside the standard one")
     ap.add_argument("--outdir", type=Path, default=Path("docs/figures"))
     args = ap.parse_args()
     scene = Path(SCENES.get(args.scene, args.scene))
@@ -147,7 +156,26 @@ def main():
     # ---- corrected series, exactly as baker_pairlsq.py --------------------
     d, times = integrate(los_displacement(phase, lam), net, n)
     del phase
-    d, _ = epoch_screen_correction(d, fit_m, r, model="linear", weights=mean_cc)
+    cov = None
+    if args.height_screen:
+        import os as _os
+        from baker_north_side import decimated_par as _dpar
+        from gpri_tools.geocode import BAKERBEND1_HEADING as _H, RadarGeometry as _RG
+        from gpri_tools.heading import scene_heading as _sh, target_heights
+        # --rgi builds this already; without it the geometry is still needed
+        geom = locals().get("geom") or _RG(_dpar(stack.par, args.decimate),
+                                           heading=_sh(scene, default=_H))
+        dem = _os.environ.get("GPRI_DEM", "")
+        if not Path(dem).exists():
+            sys.exit("--height-screen needs GPRI_DEM to point at a DEM tile")
+        z_px = target_heights(geom, dem)
+        cov = {"height": z_px}
+        print(f"height covariate: targets {np.nanmin(z_px):.0f}-"
+              f"{np.nanmax(z_px):.0f} m; stable ground spans "
+              f"{np.nanmin(z_px[fit_m]):.0f}-{np.nanmax(z_px[fit_m]):.0f} m, "
+              f"ice {np.nanmin(z_px[ice]):.0f}-{np.nanmax(z_px[ice]):.0f} m")
+    d, _ = epoch_screen_correction(d, fit_m, r, model="linear", weights=mean_cc,
+                                   covariates=cov)
     t0 = time.time()
     for k in range(d.shape[0]):
         scr, _ = turbulence_screen(d[k], fit_m, sigma=tuple(args.sigma),
@@ -324,13 +352,14 @@ def main():
             ax.axvline(u - origin, color="0.6", lw=0.6, ls=":")
     plt.tight_layout()
     args.outdir.mkdir(parents=True, exist_ok=True)
-    out = args.outdir / f"19_population_{day}.png"
+    out = args.outdir / f"19_population_{day}{'_hz' if args.height_screen else ''}.png"
     plt.savefig(out, dpi=140)
     plt.close()
     print(f"\nwrote {out}")
 
     # the population series themselves, for baker_seasons.py to overlay
-    npz = population_path(scene, args.antenna, args.decimate)
+    npz = population_path(scene, args.antenna, args.decimate,
+                          args.height_screen)
     # rates in m/yr; ``detrend`` says which line the anomalies are from
     np.savez(npz, hours=hours, origin=origin,
              epoch0=np.datetime64(net.epochs[0]).astype("datetime64[s]"),

@@ -98,6 +98,28 @@ def _dem_sampler(dem, lat0, lon0, half_width_deg=0.25):
     return sample, float(sample(lat0, lon0)[0])
 
 
+def target_heights(geom, dem, rows=None, cols=None):
+    """DEM height at every radar pixel, metres.
+
+    The screens in :mod:`gpri_tools.aps` are built from range and azimuth, so
+    they cannot express a delay that depends on how far the beam has climbed.
+    This is the missing predictor: pass it to
+    :func:`gpri_tools.aps.epoch_screen_correction` as a covariate and the fit
+    can separate a stratified atmosphere from a range ramp — where there is
+    stable ground at a range to constrain it.
+
+    ``dem`` is a raster path or a callable ``(lat, lon) -> height``, as in
+    :func:`polar_terrain`.
+    """
+    lat, lon = geom.geodetic(rows=rows, cols=cols)
+    if callable(dem):
+        sample = dem
+    else:
+        sample, _ = _dem_sampler(dem, float(np.mean(lat)), float(np.mean(lon)))
+    return np.asarray(sample(np.ravel(lat), np.ravel(lon)),
+                      float).reshape(np.shape(lat))
+
+
 def polar_terrain(dem, lat0, lon0, alt0=None, rmax=12000.0, daz=0.2, dr=15.0,
                   antenna_height=2.0, shadow_tolerance=0.02):
     """Resample a DEM around the radar and find what the radar can see.
