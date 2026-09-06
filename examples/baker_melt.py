@@ -100,6 +100,28 @@ def load_melt(scene: Path, antenna: str, dec: int):
     return None if version < MELT_CACHE_VERSION else p
 
 
+def on_clock(p, utc_offset):
+    """The cached products with every local hour moved onto ``utc_offset``.
+
+    The offset enters :func:`compute` as a pure additive shift of the local
+    clock, so a cache built on one offset answers for any other without being
+    rebuilt; the swings, amplitudes, correlations and transfer curves do not
+    depend on it at all.
+    """
+    out = dict(p)
+    if "utc_offset" not in p:
+        return out
+    delta = float(utc_offset) - float(p["utc_offset"])
+    if delta:
+        out["hours_local"] = p["hours_local"] + delta
+        out["origin_local"] = np.mod(float(p["origin_local"]) + delta, 24.0)
+        for k in p:
+            if k.startswith("hour_"):
+                out[k] = np.mod(p[k] + delta, 24.0)
+        out["utc_offset"] = float(utc_offset)
+    return out
+
+
 def station_series(name: str, station: str):
     """The station's temperature at the epochs and its height, from the met cache."""
     metf = Path(os.environ.get("GPRI_WORK_ROOT", "work")) / "met" / f"met_{name}.npz"
@@ -275,7 +297,7 @@ def curve_slope(curve):
 
 def report(name, p, args):
     hours_local, hc = p["hours_local"], p["hours"]
-    keys = [k[3:] for k in p.files if k.startswith("db_ice_")] + ["rock_held"]
+    keys = [k[3:] for k in p if k.startswith("db_ice_")] + ["rock_held"]
     ice, held, z = p["ice"], p["held"], p["z"]
     T_h = p["T_station"]
     z_st, lapse = float(p["station_height"]), float(p["lapse"])
@@ -341,7 +363,7 @@ def report(name, p, args):
         print("\n  transfer curves, brightness against the air at the pixel's height:")
         print("  band              dB per °C   r     T range (°C)    n")
         for k in keys:
-            if "curve_" + k not in p.files:
+            if "curve_" + k not in p:
                 continue
             curve = p["curve_" + k]
             if curve.shape[1] == 0:
@@ -362,6 +384,7 @@ def campaigns(args):
         if p is None:
             print(f"{name}: no usable melt cache ({mf}); run --scene {name} first")
             continue
+        p = on_clock(p, args.utc_offset)
         T_h, z_st, lapse = p["T_station"], float(p["station_height"]), float(p["lapse"])
         T = air_temperature_at(REFERENCE_HEIGHT, T_h, z_st, lapse)
         ice, z = p["ice"], p["z"]
@@ -451,13 +474,20 @@ def main():
             p = np.load(cache, allow_pickle=True)
             print(f"rebuilt the per-pixel statistics in {cache}")
     else:
+        spath = db_stack_path(scene, args.antenna, args.decimate)
+        if cache.exists() and not args.recompute:
+            if not spath.exists():
+                print(f"{spath} is missing; rebuilding {cache}")
+            else:
+                print(f"{cache} is older than cache version "
+                      f"{MELT_CACHE_VERSION}; rebuilding")
         out = compute(scene, name, args)
         out["cache_version"] = MELT_CACHE_VERSION
         cache.parent.mkdir(parents=True, exist_ok=True)
         np.savez(cache, **out)
         print(f"wrote {cache}")
         p = np.load(cache, allow_pickle=True)
-    report(name, p, args)
+    report(name, on_clock(p, args.utc_offset), args)
 
 
 if __name__ == "__main__":

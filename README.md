@@ -202,11 +202,13 @@ python examples/baker_composite.py --scenes 20170827 20180808 20190719
 # the weather beside the radar (SNOTEL + ERA5, a week either side, cached), and
 # what the ice does with it: the stratification forward model, the lag, the ice
 # against temperature, and which pixels carry the waveform
+CAMPAIGNS="20170713_full 20190719 20170913 20170803_full 20170827 20180808"
+# the population series each of them reads
+for s in $CAMPAIGNS; do python examples/baker_population.py --scene $s --decimate 16 --rgi; done
 python examples/baker_met.py
 python examples/baker_stratification.py --scene 20170803_full
 python examples/baker_lag.py --scenes 20170803_full 20180808 20190719
 python examples/baker_weather_plots.py --scenes 20170803_full 20180808 20190719
-CAMPAIGNS="20170713_full 20190719 20170913 20170803_full 20170827 20180808"
 for s in $CAMPAIGNS; do python examples/baker_pixels.py --scene $s; done
 # the surface's brightness as a melt gauge: the per-pixel tables, per campaign
 # and side by side, and every epoch's raw backscatter kept on disk

@@ -52,6 +52,8 @@ def main():
     ap.add_argument("--window", type=float, default=2.0,
                     help="hours over which the velocity anomaly is differenced")
     ap.add_argument("--station", default="1011")
+    ap.add_argument("--utc-offset", type=float, default=-7.0,
+                    help="local clock relative to UTC (PDT: -7)")
     ap.add_argument("--outdir", type=Path, default=Path("docs/figures"))
     args = ap.parse_args()
     work = Path(os.environ.get("GPRI_WORK_ROOT", "work"))
@@ -92,7 +94,8 @@ def main():
         ax2.set_ylabel("Air temperature (°C)", color="tab:red")
         ax2.tick_params(axis="y", colors="tab:red")
         for night in np.arange(-24, hours[-1] + 24, 24.0):
-            lo, hi = night + (7.0 - origin), night + (13.0 - origin)
+            lo = night + (-args.utc_offset - origin)
+            hi = night + (6.0 - args.utc_offset - origin)
             ax.axvspan(max(lo, 0), min(hi, hours[-1]), color="0.93", zorder=0)
         ax.set_xlim(0, hours[-1])
         ax.legend(loc="upper left", fontsize=8)
