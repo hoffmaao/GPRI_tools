@@ -3,15 +3,12 @@
 
     python examples/baker_stratification.py --scene 20170803_full
 
-The met data (`baker_met.py`) showed that the campaigns carrying the largest
-"diurnal" ice anomalies are the ones where the air was frequently **inverted**,
-and that held-out bedrock — which does not move — carries an anomaly correlated
-with the lapse rate at ~0.8 on the two strongest.  That correlation says
-stratification survives the correction.  It does not say how *much* signal it
-can put on the glacier, and that is the number that decides whether the ice
-anomaly is air or ice.  The bedrock residual is small in absolute terms — a few
-tenths of a millimetre against ten — so the question is whether geometry can
-amplify it by the twenty-odd times needed, not whether the effect exists.
+`baker_met.py` reports how often each campaign's air was **inverted** and
+how the held-out bedrock anomaly correlates with the lapse rate.  That says
+whether stratification survives the correction on rock; it does not say how
+*much* signal a stratified atmosphere can put on the glacier, which sits
+higher and farther than the rock the screens are fitted on.  This script
+computes that number.
 
 This is the forward calculation.  Take the lapse rate the stations measured,
 build a horizontally uniform atmosphere with it, integrate the refractivity

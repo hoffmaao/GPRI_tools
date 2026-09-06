@@ -3,10 +3,9 @@
 
     python examples/baker_lag.py --scenes 20170803_full 20180808 20190719
 
-The stratification model (`baker_stratification.py`) accounts for about half
-the ice anomaly's response to the lapse rate on the warm campaigns and none of
-its variation between campaigns.  The obvious candidate for the rest is melt.
-The two explanations differ in a way that does not depend on any amplitude:
+Two candidate explanations of an ice anomaly that follows the air — a
+stratified atmosphere (`baker_stratification.py`) and a melt-driven response
+— differ in a way that does not depend on any amplitude:
 
 * **Refractivity is instantaneous.**  The delay a stratified atmosphere adds
   depends on the state of the air *now*.  Its correlation with temperature
