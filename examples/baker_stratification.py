@@ -172,7 +172,7 @@ def main():
     # A screen fitted on rock removes what it can see. Rock and ice do not
     # occupy the same swath, so "referenced to bedrock" means interpolation
     # over part of the glacier and extrapolation over the rest.
-    print(f"\nby range: what the rock-fitted screens leave on the ice")
+    print("\nby range: what the rock-fitted screens leave on the ice")
     print(f"{'range (km)':>12}{'rock px':>9}{'ice px':>9}{'raw ice':>10}"
           f"{'after':>9}{'removed':>9}"
           + (f"{'+height':>11}{'removed':>9}" if args.height_term else ""))

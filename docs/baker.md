@@ -1231,9 +1231,11 @@ convolution of each epoch's residual over stable ground. And **what remains
 grows as √t and is spatially uncorrelated** — single-look phase noise, not
 atmosphere, so the next lever is multilooking/phase linking, not more screens.
 
-There is deliberately no stratified (height-dependent) term: with one beam
-elevation and no DEM, height is exactly linear in slant range and
-unidentifiable from the mixing ramp.
+The ladder has no stratified (height-dependent) stage of its own: with one
+beam elevation, height is exactly linear in slant range and unidentifiable
+from the mixing ramp until a DEM supplies it per pixel. It is fitted on top
+of stage C as a covariate instead (`baker_population.py --height-screen`),
+and what that did is in "The weather, and what the ice does with it" above.
 
 Closure phase is also now measured on real data: 20160826's merged
 single-reference + chain networks give 25 triangles

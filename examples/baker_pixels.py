@@ -337,7 +337,7 @@ def main():
     keys = [k[3:] for k in p if k.startswith("db_") and k != "db_rock_fit"]
     have_db = np.isfinite(p["db_rock_fit"]).any()
     if have_db:
-        print(f"\n  backscatter anomaly by band, bedrock gain removed:")
+        print("\n  backscatter anomaly by band, bedrock gain removed:")
         print(f"  {'band':16s} {'RMS (dB)':>9s} {'r(dB, ice mm)':>14s} {'dB per 10 mm':>13s} "
               f"{'peak-to-peak':>13s}")
         for k in keys:

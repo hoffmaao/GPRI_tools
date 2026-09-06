@@ -62,14 +62,19 @@ from the ice itself.  Where there is no stable ground within reach of the
 kernel, the screen is zero and the phase is left alone, with the
 ``quality`` map saying so.
 
-One correction that is *not* here, and why
-------------------------------------------
+The stratified term, and what it takes to fit it
+------------------------------------------------
 A stratified (height-dependent) term, standard in spaceborne InSAR, is
-**unidentifiable for a GPRI without a DEM**: every pixel shares the same
-antenna elevation angle, so beam height is exactly ``alt + r sin(elev)`` —
-perfectly linear in slant range and therefore absorbed, indistinguishably,
-by the uniform-mixing ramp the matched filter already estimates.  Separating
-them needs per-pixel terrain height, and no DEM accompanies the data.
+**unidentifiable for a GPRI from the radar geometry alone**: every pixel
+shares the same antenna elevation angle, so beam height is exactly
+``alt + r sin(elev)`` — perfectly linear in slant range and therefore
+absorbed, indistinguishably, by the uniform-mixing ramp the matched filter
+already estimates.  Separating them needs per-pixel terrain height, which a
+DEM supplies (:func:`gpri_tools.heading.target_heights`): pass it to
+:func:`epoch_screen_correction` as a ``covariates`` entry and the fit carries
+a height column beside the range terms.  It is then only as good as the
+stable ground constraining it — where no rock sits at a range, the height
+term is extrapolated over the target like every other.
 """
 from __future__ import annotations
 

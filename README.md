@@ -112,7 +112,7 @@ capability above was built for, and it is the only example in this repository.
 
 ```bash
 pip install -e '.[all]'      # numpy, scipy + pyproj, rasterio, matplotlib
-pytest                       # 344 tests
+pytest                       # 375 tests
 ```
 
 Only `numpy` and `scipy` are required. `pyproj` and `rasterio` are needed for
@@ -223,9 +223,11 @@ for s in $CAMPAIGNS; do python examples/baker_brightness.py --scene $s; done
 for s in $CAMPAIGNS; do python examples/baker_catchments.py --scene $s; done
 ```
 
-`bin/run_scene.sh <scene> [upper|lower|both]` runs that whole chain for one
-scene, both antennas side by side, logging each step under
-`$GPRI_WORK_ROOT/<scene>/logs/`.
+`bin/run_scene.sh <scene> [upper|lower|both]` runs the deformation chain for
+one scene — the corrections, the rates, the population series, the movies and
+closure — both antennas side by side, logging each step under
+`$GPRI_WORK_ROOT/<scene>/logs/`. The weather, pixel and brightness steps
+above are run scene by scene.
 
 ## The scan heading is not in the data
 
