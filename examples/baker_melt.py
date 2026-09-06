@@ -33,7 +33,12 @@ anomaly of ``baker_pixels.py`` against the brightness swing and against the
 warmth of the day — the test of whether the anomaly follows the melt.
 
 Everything per pixel is cached in ``work/<scene>/melt_u_dec16.npz``; the
-tables and figures are rebuilt from it.
+tables and figures are rebuilt from it.  The backscatter of every epoch is
+kept beside it as it comes off the SLC, unreferenced, as ``db_u_dec16.npy``
+(float16, epochs x azimuth x range) so that anything else that wants the
+brightness — the movie and the glacier-mean series of
+``baker_brightness.py`` — never has to read the SLCs again; the cache's
+``db_reference`` is the bedrock median that was taken off everything here.
 """
 from __future__ import annotations
 
@@ -69,6 +74,11 @@ REFERENCE_HEIGHT = 2600.0                                             # m: the u
 def melt_path(scene: Path, antenna: str, dec: int) -> Path:
     root = Path(os.environ.get("GPRI_WORK_ROOT", "work"))
     return root / scene.name / f"melt_{antenna[0].lower()}_dec{dec}.npz"
+
+
+def db_stack_path(scene: Path, antenna: str, dec: int) -> Path:
+    """Every epoch's backscatter in dB, unreferenced, as ``compute`` streamed it."""
+    return melt_path(scene, antenna, dec).with_name(f"db_{antenna[0].lower()}_dec{dec}.npy")
 
 
 def station_series(name: str, station: str):
@@ -133,16 +143,30 @@ def compute(scene, name, args):
     bands["rock_held"], bands["rock_fit"] = held_m, fit_m
 
     # ---- stream the epochs: hourly brightness, gain-referenced to bedrock --
+    # every frame is also kept on disk as it comes off the SLC (float16,
+    # epochs x azimuth x range) for the movie and the glacier-mean series,
+    # and the plain mean over the glacier is taken while the frame is in hand
     db = {k: np.full(n_ep, np.nan) for k in bands}
+    db_ice = np.full(n_ep, np.nan)
     acc = BinAccumulator(hc.size, ice.shape)
+    spath = db_stack_path(scene, args.antenna, args.decimate)
+    spath.parent.mkdir(parents=True, exist_ok=True)
+    frames = np.lib.format.open_memmap(spath, mode="w+", dtype=np.float16,
+                                       shape=(n_ep,) + ice.shape)
     t0 = time.time()
     for e in range(n_ep):
         frame = stack.backscatter(e, looks=(1, args.decimate))[:, :ice.shape[1]]
+        frame[frame < -200] = np.nan          # zero power: an empty line, not a surface
+        frames[e] = frame
+        db_ice[e] = np.nanmean(frame[ice])
         for k, m in bands.items():
-            db[k][e] = np.median(frame[m])
+            db[k][e] = np.nanmedian(frame[m])
         acc.add(idx[e], frame - db["rock_fit"][e])
         if e % 200 == 0:
             print(f"  backscatter {e + 1}/{n_ep} ({time.time() - t0:.0f} s)")
+    frames.flush()
+    del frames
+    print(f"kept every frame in {spath}")
     hourly_db = acc.mean().astype(np.float32)
     epochs_per_bin = acc.epochs_per_bin.copy()
     del acc
@@ -170,7 +194,8 @@ def compute(scene, name, args):
     T_edges = np.arange(args.t_range[0], args.t_range[1] + 1e-9, args.t_step)
     out = {"hourly_db": hourly_db, "hourly_cc": hourly_cc, "hours": hc,
            "hours_local": hours_local, "epochs_per_bin": epochs_per_bin,
-           "epoch_hours": hours, "T_epochs": T_ep, "T_station": T_h,
+           "epoch_hours": hours, "db_ice": db_ice, "db_reference": db["rock_fit"],
+           "T_epochs": T_ep, "T_station": T_h,
            "station": args.station, "station_height": z_st, "lapse": args.lapse,
            "origin_local": origin_local, "utc_offset": args.utc_offset,
            "epoch0": np.datetime64(e0).astype("datetime64[s]"),

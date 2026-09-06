@@ -912,6 +912,53 @@ own DEM height (`air_temperature_at`, MF Nooksack carried up at
 (`$GPRI_WORK_ROOT/<scene>/melt_u_dec16.npz`), the figure is
 `figures/24_melt_<scene>.png`, and `--campaigns` puts the six together.
 
+The plainest view of the same data comes first. `baker_melt.py` also
+keeps every epoch's backscatter as it came off the SLC, and
+`examples/baker_brightness.py` shows it with nothing referenced,
+differenced or fitted: a grey-scale movie of the radar image through the
+day, black to white on one scale for the whole record, geocoded with the
+UTC clock in the corner (`figures/26_db_movie_<scene>.mp4`), and one line
+per campaign — the mean backscatter over the glacier outline against UTC,
+the local night (00–06) shaded (`figures/26_db_series_<scene>.png`). The
+movie is smoothed for display only (a 5-epoch rolling mean and a
+1 × 2 px Gaussian, declared on the frame). Bedrock is in the frame as the
+control, and the instrument is in the numbers: the receiver's gain drifts
+by 0.9–2.1 dB over a record and steps by 10 dB two hours into
+`20170713_full`, which the raw line shows as it is.
+
+![the glacier's mean backscatter through 20190719](figures/26_db_series_20190719.png)
+
+The movies, one per campaign:
+[`20170713_full`](figures/26_db_movie_20170713_full.mp4),
+[`20170803_full`](figures/26_db_movie_20170803_full.mp4),
+[`20170827`](figures/26_db_movie_20170827.mp4),
+[`20170913`](figures/26_db_movie_20170913.mp4),
+[`20180808`](figures/26_db_movie_20180808.mp4),
+[`20190719`](figures/26_db_movie_20190719.mp4).
+
+The same mean is then put beside the motion of the ice, catchment by
+catchment, in `examples/baker_catchments.py`
+(`figures/27_catchments_<scene>.png`). The upper panel is the mean LOS
+velocity of the coherent ice (mean coherence ≥ 0.5) inside each named RGI
+outline — Coleman (16–20 thousand pixels), Roosevelt (8–11 thousand) and
+Thunder (~500) on every campaign, Mazama where its 200-odd pixels are in
+view (`20170913`, `20190719`) — after the validated correction (the linear
+epoch screen and the (5, 25) turbulence screen, fitted on every bedrock
+pixel), differenced over a trailing 2 h window, positive toward the radar,
+in m/yr; the lower panel is the glacier-mean backscatter of the line
+above. Both sit on the UTC clock with the local night shaded. The window
+sets the noise, about ±20 m/yr on the two large catchments and more on
+the small ones, and the first hour of each record is a one-sided
+difference. Two things to read off it: on `20170713_full` the +58 m/yr
+spike at 21:45 UTC is the same two minutes as the 10 dB gain step, an
+instrument event and not the ice; and on `20170913` Coleman and Roosevelt
+run at 30–60 m/yr toward the radar all day while Mazama and Thunder hover
+about zero, the line of sight seeing the two big catchments' flow and
+barely any of the other two.
+
+![catchment-mean LOS velocity and the glacier's mean backscatter, 20190719](figures/27_catchments_20190719.png)
+
+
 ![the brightness as a melt gauge, 20190719](figures/24_melt_20190719.png)
 
 In the cool campaigns the gauge reads cleanly, and it reads like a
@@ -1106,6 +1153,10 @@ against 22,030 at this decimation), so the epoch screens extrapolate further
 over the ice than before. And display smoothing — a rolling temporal mean and
 a light spatial Gaussian — is printed on every frame rather than hidden;
 without it a per-pixel movie of single-look data is snow.
+
+The brightness has its own movies, one per campaign, listed under
+[the melt gauge](#the-brightness-as-a-melt-gauge): the radar image itself in
+grey scale on the same map and clock (`figures/26_db_movie_<scene>.mp4`).
 
 ## Two antennas, one day: the replicate
 
