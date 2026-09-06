@@ -205,6 +205,8 @@ python examples/baker_composite.py --scenes 20170827 20180808 20190719
 CAMPAIGNS="20170713_full 20190719 20170913 20170803_full 20170827 20180808"
 # the population series each of them reads
 for s in $CAMPAIGNS; do python examples/baker_population.py --scene $s --decimate 16 --rgi; done
+# the same two days again with the height screen in the ladder
+for s in 20170803_full 20180808; do python examples/baker_population.py --scene $s --decimate 16 --rgi --height-screen; done
 python examples/baker_met.py
 python examples/baker_stratification.py --scene 20170803_full
 python examples/baker_lag.py --scenes 20170803_full 20180808 20190719

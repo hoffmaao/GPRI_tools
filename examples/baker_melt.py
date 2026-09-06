@@ -49,6 +49,7 @@ import argparse
 import os
 import sys
 import time
+from collections import ChainMap
 from pathlib import Path
 
 import numpy as np
@@ -106,20 +107,21 @@ def on_clock(p, utc_offset):
     The offset enters :func:`compute` as a pure additive shift of the local
     clock, so a cache built on one offset answers for any other without being
     rebuilt; the swings, amplitudes, correlations and transfer curves do not
-    depend on it at all.
+    depend on it at all.  The shifted keys are laid over the cache rather than
+    copied out of it, so the hourly frames are never read.
     """
-    out = dict(p)
     if "utc_offset" not in p:
-        return out
+        return p
     delta = float(utc_offset) - float(p["utc_offset"])
-    if delta:
-        out["hours_local"] = p["hours_local"] + delta
-        out["origin_local"] = np.mod(float(p["origin_local"]) + delta, 24.0)
-        for k in p:
-            if k.startswith("hour_"):
-                out[k] = np.mod(p[k] + delta, 24.0)
-        out["utc_offset"] = float(utc_offset)
-    return out
+    if not delta:
+        return p
+    shifted = {"hours_local": p["hours_local"] + delta,
+               "origin_local": np.mod(float(p["origin_local"]) + delta, 24.0),
+               "utc_offset": float(utc_offset)}
+    for k in p:
+        if k.startswith("hour_"):
+            shifted[k] = np.mod(p[k] + delta, 24.0)
+    return ChainMap(shifted, p)
 
 
 def station_series(name: str, station: str):
