@@ -49,9 +49,38 @@ from gpri_tools.heading import scene_heading                              # noqa
 from gpri_tools.timeseries import los_displacement                        # noqa: E402
 
 
+# version 2: named outlines only, an unnamed one skipped
+CATCHMENTS_CACHE_VERSION = 2
+
+# the flags that decide which pixels the catchment means are taken over; a
+# cache built under different ones answers a different question
+MASK_ARGS = ("ice_coherence", "stable_coherence", "min_pixels", "sigma")
+
+
 def catchments_path(scene: Path, antenna: str, dec: int) -> Path:
     root = Path(os.environ.get("GPRI_WORK_ROOT", "work"))
     return root / scene.name / f"catchments_{antenna[0].lower()}_dec{dec}.npz"
+
+
+def load_catchments(scene: Path, args):
+    """The cached catchment means, or ``(None, reason)`` if they cannot be used.
+
+    A cache stamped below ``CATCHMENTS_CACHE_VERSION`` holds a catchment set
+    the code no longer builds, and one built under different mask flags is an
+    answer to a different question; either way it has to be rebuilt.
+    """
+    cache = catchments_path(scene, args.antenna, args.decimate)
+    if not cache.exists():
+        return None, "no cache"
+    c = dict(np.load(cache, allow_pickle=False))
+    if int(c.get("cache_version", 0)) < CATCHMENTS_CACHE_VERSION:
+        return None, f"older than cache version {CATCHMENTS_CACHE_VERSION}"
+    for k in MASK_ARGS:
+        want = np.atleast_1d(np.asarray(getattr(args, k), float))
+        have = np.atleast_1d(np.asarray(c.get(k, np.nan), float))
+        if have.shape != want.shape or not np.array_equal(have, want):
+            return None, f"built with a different --{k.replace('_', '-')}"
+    return c, ""
 
 
 def short_name(name) -> str:
@@ -107,7 +136,10 @@ def compute(scene, args):
     return {"disp": disp.astype(np.float32), "names": np.array(names), "ids": np.array(ids),
             "n_pixels": n_px, "epoch_hours": np.asarray(times, float) * 24.0,
             "epoch0": np.datetime64(net.epochs[0]).astype("datetime64[s]"),
-            "window": args.window, "utc_offset": args.utc_offset}
+            "cache_version": CATCHMENTS_CACHE_VERSION, "antenna": args.antenna,
+            "decimate": args.decimate, "window": args.window,
+            "utc_offset": args.utc_offset,
+            **{k: np.asarray(getattr(args, k), float) for k in MASK_ARGS}}
 
 
 def figure(c, melt, name, args):
@@ -167,10 +199,12 @@ def main():
     name = args.scene
     scene = Path(SCENES.get(name, name))
     cache = catchments_path(scene, args.antenna, args.decimate)
-    if cache.exists() and not args.recompute:
-        c = dict(np.load(cache, allow_pickle=False))
+    c, why = (None, "") if args.recompute else load_catchments(scene, args)
+    if c is not None:
         print(f"loaded {cache}")
     else:
+        if why and why != "no cache":
+            print(f"{cache} is {why}; rebuilding")
         c = compute(scene, args)
         cache.parent.mkdir(parents=True, exist_ok=True)
         np.savez(cache, **c)

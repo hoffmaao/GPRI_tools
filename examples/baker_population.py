@@ -130,6 +130,7 @@ def main():
     usable = mean_cc >= args.ice_coherence
     del cc
     stable = mean_cc >= args.stable_coherence
+    geom = None
     if args.rgi:
         import os as _os
         from baker_north_side import decimated_par
@@ -163,8 +164,9 @@ def main():
         from gpri_tools.geocode import BAKERBEND1_HEADING as _H, RadarGeometry as _RG
         from gpri_tools.heading import scene_heading as _sh, target_heights
         # --rgi builds this already; without it the geometry is still needed
-        geom = locals().get("geom") or _RG(_dpar(stack.par, args.decimate),
-                                           heading=_sh(scene, default=_H))
+        if geom is None:
+            geom = _RG(_dpar(stack.par, args.decimate),
+                       heading=_sh(scene, default=_H))
         dem = _os.environ.get("GPRI_DEM", "")
         if not Path(dem).exists():
             sys.exit("--height-screen needs GPRI_DEM to point at a DEM tile")
