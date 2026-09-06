@@ -268,6 +268,10 @@ def epoch_screen_correction(displacement, mask, slant_range, azimuth=None,
         covariate is the difference between removing the stratification and
         extrapolating a range ramp over it.
 
+        A pixel whose covariate is not finite is left out of the fit, and the
+        corrected series is NaN there: no screen is evaluated at a height the
+        DEM does not know.
+
     Returns
     -------
     corrected : array, same shape
@@ -308,13 +312,17 @@ def epoch_screen_correction(displacement, mask, slant_range, azimuth=None,
             # centre on the fitted pixels: the offset term already carries the
             # mean, and an uncentred covariate makes the normal equations sick
             v = v - np.nanmean(v[m])
-            extra.append(np.nan_to_num(v))
-        A = np.column_stack([A] + [v[rows, cols] for v in extra])
+            extra.append(v)
+        A = np.column_stack([A] + [np.nan_to_num(v[rows, cols]) for v in extra])
 
     w = np.ones(rows.size) if weights is None else \
         np.clip(np.nan_to_num(np.asarray(weights, float)[rows, cols]), 0.0, None)
     Y = np.nan_to_num(d[:, rows, cols]).T                # (n_masked, n_epochs)
     finite = np.isfinite(d[:, rows, cols]).all(axis=0)
+    for v in extra:
+        # a missing covariate — a hole in the DEM, say — is not a pixel at the
+        # mask's mean height; it is one this screen has nothing to say about
+        finite &= np.isfinite(v[rows, cols])
     w = w * finite
 
     sw = np.sqrt(w)[:, None]

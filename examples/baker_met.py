@@ -124,10 +124,11 @@ def main():
     print(f"\n{len(stations)} SNOTEL stations within {args.radius_km:g} km of "
           f"{lat:.4f}, {lon:.4f}")
     for s in stations:
+        el = "     -" if s["elevation_m"] is None else f"{s['elevation_m']:6.0f}"
+        tz = ("tz from API" if s["dataTimeZone"] is None
+              else f"UTC{s['dataTimeZone']:+.0f}")
         print(f"  {s['stationTriplet']:14s} {s['name']:<14s} "
-              f"{s['distance_km']:5.1f} km  {s['elevation_m']:6.0f} m  "
-              f"UTC{s['dataTimeZone']:+.0f}"
-              if s["dataTimeZone"] is not None else "tz from API")
+              f"{s['distance_km']:5.1f} km  {el} m  {tz}")
     if not stations:
         sys.exit("no stations found; widen --radius-km")
 

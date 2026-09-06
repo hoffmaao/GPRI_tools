@@ -403,8 +403,6 @@ def main():
     ap.add_argument("--width", type=float, default=1.0, help="bin width (hours)")
     ap.add_argument("--min-bins", type=int, default=12,
                     help="finite bins a 24 h window needs before a swing is read")
-    ap.add_argument("--min-swing", type=float, default=0.5,
-                    help="swing (dB) below which no hour of darkness is mapped")
     ap.add_argument("--utc-offset", type=float, default=-7.0,
                     help="local clock relative to UTC (PDT: -7)")
     ap.add_argument("--station", default="1011", help="SNOTEL station for the air")

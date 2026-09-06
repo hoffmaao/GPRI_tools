@@ -149,22 +149,29 @@ def compute(scene, args):
     # per pixel: the mean brightness, its spread over the record, and its
     # projection on the waveform (dB per mm), the fit-half bedrock's median
     # taken out of every frame as the instrument's gain
-    mean_db, sq_db, gamma = (np.zeros(ice.shape) for _ in range(3))
+    mean_db, sq_db, gamma, n_db, csq = (np.zeros(ice.shape) for _ in range(5))
     if hasattr(stack, "backscatter"):
         t0 = time.time()
         for e in range(t.size):
             frame = stack.backscatter(e, looks=(1, args.decimate))[:, :ice.shape[1]]
+            frame[frame < -200] = np.nan      # zero power: an empty line, not a surface
             for k, m in bands.items():
-                db[k][e] = np.median(frame[m])
+                db[k][e] = np.nanmedian(frame[m])
             frame = frame - db["rock_fit"][e]
+            ok = np.isfinite(frame)
+            frame = np.where(ok, frame, 0.0)
             mean_db += frame
             sq_db += frame * frame
-            gamma += frame * c[e]
+            n_db += ok
+            if np.isfinite(c[e]):
+                gamma += frame * c[e]
+                csq += ok * (c[e] * c[e])
             if e % 200 == 0:
                 print(f"  backscatter {e + 1}/{t.size} ({time.time() - t0:.0f} s)")
-        mean_db /= t.size
-        sd_db = np.sqrt(np.maximum(sq_db / t.size - mean_db ** 2, 0.0))
-        gamma /= np.sum(c * c)
+        n = np.where(n_db > 0, n_db, np.nan)
+        mean_db /= n
+        sd_db = np.sqrt(np.maximum(sq_db / n - mean_db ** 2, 0.0))
+        gamma /= np.where(csq > 0, csq, np.nan)
     else:
         print("no SLCs behind this stack (GAMMA diff0 products): no backscatter")
         sd_db = np.full(ice.shape, np.nan)

@@ -94,6 +94,19 @@ def test_interp_to_lands_on_epochs_and_refuses_gaps():
     assert np.isfinite(out[1])                  # inside, across a 5 h gap
 
 
+def test_interp_to_leaves_an_outage_empty():
+    """Hours the station reported as missing are not interpolated over."""
+    t = np.array(["2017-08-03T00:00", "2017-08-03T01:00", "2017-08-03T02:00",
+                  "2017-08-03T03:00", "2017-08-03T04:00"], dtype="datetime64[m]")
+    y = np.array([0.0, np.nan, np.nan, np.nan, 40.0])
+    x = np.array(["2017-08-03T00:00", "2017-08-03T00:30", "2017-08-03T02:00",
+                  "2017-08-03T03:30", "2017-08-03T04:00"], dtype="datetime64[m]")
+    out = met.interp_to(t, y, x)
+    assert out[0] == pytest.approx(0.0)         # a sample that was reported
+    assert out[4] == pytest.approx(40.0)
+    assert np.isnan(out[1:4]).all()             # the three-hour outage
+
+
 def test_lapse_rate_sign_and_missing_stations():
     z = [1000.0, 1500.0, 2000.0]
     # -5 C/km: 10, 7.5, 5 degC.  Second column has one station only.

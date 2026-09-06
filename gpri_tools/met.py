@@ -234,12 +234,14 @@ def interp_to(times, values, targets):
     if ok.sum() < 2:
         return np.full(x.shape, np.nan)
     out = np.interp(x, t[ok], y[ok], left=np.nan, right=np.nan)
-    # a target between two samples more than one gap apart is not interpolated
-    idx = np.searchsorted(t[ok], x)
-    inside = (idx > 0) & (idx < ok.sum())
-    span = np.full(x.shape, np.inf)
-    span[inside] = (t[ok][idx[inside]] - t[ok][idx[inside] - 1])
-    return np.where(span <= 2 * 3600, out, np.where(np.isfinite(out), out, np.nan))
+    # the bracketing samples are looked up in the raw record, not in the finite
+    # ones: an hour the station left empty is a gap, not a value to be spanned
+    hi = np.searchsorted(t, x)
+    lo = np.clip(hi - 1, 0, t.size - 1)
+    hic = np.clip(hi, 0, t.size - 1)
+    on = (t[hic] == x) & ok[hic]                 # the target lands on a sample
+    between = (hi > 0) & (hi < t.size) & ok[lo] & ok[hic]
+    return np.where(on | between, out, np.nan)
 
 
 def lapse_rate(elevations_m, temperatures):

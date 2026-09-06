@@ -927,7 +927,7 @@ outline — Coleman (16–20 thousand pixels), Roosevelt (8–11 thousand) and
 Thunder (~500) on every campaign, Mazama where its 200-odd pixels are in
 view (`20170913`, `20190719`) — after the validated correction (the linear
 epoch screen and the (5, 25) turbulence screen, fitted on every bedrock
-pixel), differenced over a trailing 2 h window, positive toward the radar,
+pixel), differenced over a centred 2 h window, positive toward the radar,
 in m/yr; the lower panel is the glacier-mean backscatter of the line
 above. Both sit on the UTC clock with the local night shaded. The window
 sets the noise, about ±20 m/yr on the two large catchments and more on
