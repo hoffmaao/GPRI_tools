@@ -208,13 +208,14 @@ python examples/baker_lag.py --scenes 20170803_full 20180808 20190719
 python examples/baker_weather_plots.py --scenes 20170803_full 20180808 20190719
 CAMPAIGNS="20170713_full 20190719 20170913 20170803_full 20170827 20180808"
 for s in $CAMPAIGNS; do python examples/baker_pixels.py --scene $s; done
-# the surface's brightness as a melt gauge, per campaign and side by side
+# the surface's brightness as a melt gauge: the per-pixel tables, per campaign
+# and side by side, and every epoch's raw backscatter kept on disk
 for s in $CAMPAIGNS; do python examples/baker_melt.py --scene $s; done
 python examples/baker_melt.py --campaigns $CAMPAIGNS
-# the same brightness at its simplest: the radar image through the day as a
-# grey-scale movie, and the glacier's mean dB against UTC (from baker_melt.py's cache)
+# the figures of that brightness: the radar image through the day as a grey-scale
+# movie and the glacier's mean dB against UTC, then the ice's mean LOS velocity
+# per named catchment over that same glacier-mean dB
 for s in $CAMPAIGNS; do python examples/baker_brightness.py --scene $s; done
-# and the ice's mean LOS velocity per named catchment over that same glacier-mean dB
 for s in $CAMPAIGNS; do python examples/baker_catchments.py --scene $s; done
 ```
 

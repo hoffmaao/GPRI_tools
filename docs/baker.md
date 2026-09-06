@@ -894,26 +894,9 @@ come in.
 ### The brightness as a melt gauge
 
 If the surface's wetness is what the radar is reading, the radar's own
-brightness should be able to say how wet, when, and how high up.
-`gpri_tools.melt` and `examples/baker_melt.py` make that measurement per
-pixel. Every frame's backscatter is referenced to the fit-half bedrock's
-median (the receiver's gain: 0.9–2.1 dB of drift over a record, 10 dB on
-`20170713_full`) and folded into hourly
-means as it streams past (`BinAccumulator`, so a two-day stack never has
-to exist in memory); a diurnal sinusoid is then fitted to each pixel's
-hourly series (`diurnal_harmonic`), because the max-minus-min swing of a
-speckled pixel is mostly speckle — held-out bedrock "swings" 1.2–2.8 dB
-that way against 0.6–1.3 dB of fitted peak to peak, which is the noise
-floor an ice pixel has to clear. The lag-1 coherence is binned the same
-way, and every pixel's hourly brightness is put against the air at its
-own DEM height (`air_temperature_at`, MF Nooksack carried up at
-−6.5 °C/km) to give a transfer curve per height band
-(`transfer_curve`). Results are cached per campaign
-(`$GPRI_WORK_ROOT/<scene>/melt_u_dec16.npz`), the figure is
-`figures/24_melt_<scene>.png`, and `--campaigns` puts the six together.
-
-The plainest view of the same data comes first. `baker_melt.py` also
-keeps every epoch's backscatter as it came off the SLC, and
+brightness should be able to say how wet, when, and how high up. The
+plainest view of it comes first. `examples/baker_melt.py` keeps every
+epoch's backscatter as it came off the SLC, and
 `examples/baker_brightness.py` shows it with nothing referenced,
 differenced or fitted: a grey-scale movie of the radar image through the
 day, black to white on one scale for the whole record, geocoded with the
@@ -958,8 +941,22 @@ barely any of the other two.
 
 ![catchment-mean LOS velocity and the glacier's mean backscatter, 20190719](figures/27_catchments_20190719.png)
 
-
-![the brightness as a melt gauge, 20190719](figures/24_melt_20190719.png)
+Behind those lines, `gpri_tools.melt` and `baker_melt.py` make the
+measurement per pixel. Every frame's backscatter is referenced to the
+fit-half bedrock's median (the receiver's gain, taken off the numbers
+below though not off the figures above) and folded into hourly means as
+it streams past (`BinAccumulator`, so a two-day stack never has to exist
+in memory); a diurnal sinusoid is then fitted to each pixel's hourly
+series (`diurnal_harmonic`), because the max-minus-min swing of a
+speckled pixel is mostly speckle — held-out bedrock "swings" 1.2–2.8 dB
+that way against 0.6–1.3 dB of fitted peak to peak, which is the noise
+floor an ice pixel has to clear. The lag-1 coherence is binned the same
+way, and every pixel's hourly brightness is put against the air at its
+own DEM height (`air_temperature_at`, MF Nooksack carried up at
+−6.5 °C/km) to give a transfer curve per height band
+(`transfer_curve`). Results are cached per campaign
+(`$GPRI_WORK_ROOT/<scene>/melt_u_dec16.npz`), the tables are printed
+from the cache, and `--campaigns` puts the six in one table.
 
 In the cool campaigns the gauge reads cleanly, and it reads like a
 thermometer. On `20190719` the ice above 1800 m swings 5.4–7.0 dB peak to
@@ -995,8 +992,6 @@ against a bedrock floor of 0.97: no cycle at all. The coherence says the
 same. On `20180808` the upper glacier's lag-1 coherence sits at
 0.68–0.83 day and night, lowest at midday, where `20190719`'s reached
 0.92 every dawn.
-
-![six campaigns: the brightness cycle against the displacement anomaly](figures/25_melt_campaigns.png)
 
 Put beside the displacement anomaly, this is the test the refreeze
 hypothesis fails. The table is the per-pixel median peak to peak and

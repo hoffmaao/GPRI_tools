@@ -27,18 +27,19 @@ it per pixel, hour by hour (:mod:`gpri_tools.melt`):
   (:func:`~gpri_tools.melt.air_temperature_at`,
   :func:`~gpri_tools.melt.transfer_curve`), per height band.
 
-``--campaigns`` puts the campaigns side by side: their upper-glacier
-brightness clocks, their swings by band, and the diurnal displacement
-anomaly of ``baker_pixels.py`` against the brightness swing and against the
-warmth of the day — the test of whether the anomaly follows the melt.
+``--campaigns`` puts the campaigns side by side in one table: their
+upper-glacier swing and trough hour, the diurnal displacement anomaly of
+``baker_pixels.py``, and the warmth of the day — the test of whether the
+anomaly follows the melt.
 
 Everything per pixel is cached in ``work/<scene>/melt_u_dec16.npz``; the
-tables and figures are rebuilt from it.  The backscatter of every epoch is
-kept beside it as it comes off the SLC, unreferenced, as ``db_u_dec16.npy``
-(float16, epochs x azimuth x range) so that anything else that wants the
-brightness — the movie and the glacier-mean series of
-``baker_brightness.py`` — never has to read the SLCs again; the cache's
-``db_reference`` is the bedrock median that was taken off everything here.
+tables are rebuilt from it.  The backscatter of every epoch is kept beside
+it as it comes off the SLC, unreferenced, as ``db_u_dec16.npy`` (float16,
+epochs x azimuth x range), and that is where the figures of the brightness
+come from — the plain ones of ``baker_brightness.py`` and
+``baker_catchments.py``, which never have to read the SLCs again; the
+cache's ``db_reference`` is the bedrock median that was taken off
+everything here.
 """
 from __future__ import annotations
 
@@ -49,10 +50,6 @@ import time
 from pathlib import Path
 
 import numpy as np
-
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -96,14 +93,6 @@ def station_series(name: str, station: str):
             if str(label).split()[0] == station:
                 z_st = float(z)
     return np.asarray(m[key], float), z_st
-
-
-def band_label(key: str) -> str:
-    if key == "rock_held":
-        return "held-out bedrock"
-    lo_, hi_ = key.split("_")[1:]
-    return (f"ice below {hi_} m" if lo_ == "-inf" else
-            f"ice above {lo_} m" if hi_ == "inf" else f"ice {lo_}-{hi_} m")
 
 
 def compute(scene, name, args):
@@ -262,20 +251,6 @@ def clock_composite(series, hours_local, period=24.0):
     return comp
 
 
-def nights(ax, hours_local, lo=0.0, hi=6.0):
-    for day in np.arange(np.floor(hours_local.min() / 24) * 24, hours_local.max(), 24.0):
-        a, b = max(day + lo, hours_local.min()), min(day + hi, hours_local.max())
-        if a < b:
-            ax.axvspan(a, b, color="0.93", zorder=0)
-
-
-def local_ticks(ax, hours_local):
-    ticks = np.arange(np.ceil(hours_local.min() / 6) * 6, hours_local.max() + 1e-9, 6)
-    ax.set_xticks(ticks)
-    ax.set_xticklabels([f"{t % 24:02.0f}" for t in ticks])
-    ax.set_xlim(hours_local.min(), hours_local.max())
-
-
 def curve_slope(curve):
     """dB per °C over the transfer curve's medians, weighted by their counts."""
     mid, med, cnt = curve[0], curve[1], curve[4]
@@ -364,109 +339,8 @@ def report(name, p, args):
                   f"{curve[0].max():5.1f}  {int(curve[4].sum()):7d}")
 
 
-def figure(name, p, args, path):
-    hours_local, hc = p["hours_local"], p["hours"]
-    ice, held, z, r = p["ice"], p["held"], p["z"], p["r"] / 1000.0      # km
-    keys = [k[3:] for k in p.files if k.startswith("db_ice_")]
-    T_h = p["T_station"]
-    z_st, lapse = float(p["station_height"]), float(p["lapse"])
-    have_T = np.isfinite(T_h).any()
-
-    fig, axes = plt.subplots(2, 3, figsize=(16, 9))
-    ext = [r[0], r[-1], 0, ice.shape[0]]
-    xmax = min(11, ext[1])
-    ax = axes[0, 0]
-    show = np.where(ice | held, p["amp"], np.nan)
-    im = ax.imshow(show, extent=ext, aspect="auto", origin="lower", cmap="viridis",
-                   vmin=0, vmax=4, interpolation="nearest")
-    ax.set_title("Diurnal swing per pixel: fitted sinusoid, peak to peak\n"
-                 "(bedrock gain removed; bedrock's swing is the noise floor)", fontsize=9)
-    ax.set_xlabel("Slant range (km)"); ax.set_ylabel("Azimuth (px)")
-    ax.set_xlim(0, xmax)
-    plt.colorbar(im, ax=ax, label="Swing (dB)")
-
-    ax = axes[0, 1]
-    show = np.where((ice | held) & (p["amp"] >= args.min_swing), p["hour_dark"], np.nan)
-    im = ax.imshow(show, extent=ext, aspect="auto", origin="lower", cmap="twilight",
-                   vmin=0, vmax=24, interpolation="nearest")
-    ax.set_title(f"Local hour of the trough (wettest)\nwhere the swing exceeds "
-                 f"{args.min_swing:g} dB", fontsize=9)
-    ax.set_xlabel("Slant range (km)"); ax.set_ylabel("Azimuth (px)")
-    ax.set_xlim(0, xmax)
-    plt.colorbar(im, ax=ax, label="Hour (local)", ticks=[0, 6, 12, 18, 24])
-
-    ax = axes[0, 2]
-    show = np.where(ice | held, p["r_T"], np.nan)
-    im = ax.imshow(show, extent=ext, aspect="auto", origin="lower", cmap="RdBu_r",
-                   vmin=-1, vmax=1, interpolation="nearest")
-    ax.set_title(f"Correlation of the hourly brightness with the air\nat the pixel's "
-                 f"height (station {p['station']} carried up {lapse:+.1f} °C/km)", fontsize=9)
-    ax.set_xlabel("Slant range (km)"); ax.set_ylabel("Azimuth (px)")
-    ax.set_xlim(0, xmax)
-    plt.colorbar(im, ax=ax, label="Correlation")
-
-    colours = plt.cm.coolwarm(np.linspace(0, 1, len(keys)))
-    ax = axes[1, 0]
-    nights(ax, hours_local)
-    for k, colour in zip(keys, colours):
-        y = p["hourly_" + k]
-        ax.plot(hours_local, y - np.nanmean(y), color=colour, lw=1.0, label=band_label(k))
-    y = p["hourly_rock_held"]
-    ax.plot(hours_local, y - np.nanmean(y), color="0.5", lw=1.0, label="held-out bedrock")
-    ax.axhline(0, color="k", lw=0.5)
-    ax.set_ylabel("Backscatter (dB)"); ax.set_xlabel("Local time (hr)")
-    local_ticks(ax, hours_local)
-    ax.legend(fontsize=7, loc="lower left")
-    title = "Hourly brightness by height band (shading: night)"
-    if have_T:
-        ax2 = ax.twinx()
-        T = air_temperature_at(REFERENCE_HEIGHT, T_h, z_st, lapse)
-        ax2.plot(hours_local, T, color="tab:red", lw=1.2, alpha=0.7)
-        ax2.axhline(0, color="tab:red", lw=0.5, ls=":")
-        ax2.set_ylabel("Air (°C)", color="tab:red")
-        ax2.tick_params(axis="y", colors="tab:red")
-        title += f", and the air at {REFERENCE_HEIGHT:.0f} m"
-    ax.set_title(title, fontsize=10)
-
-    ax = axes[1, 1]
-    nights(ax, hours_local)
-    for k, colour in zip(keys, colours):
-        ax.plot(hours_local, p["cc_" + k], color=colour, lw=1.0, label=band_label(k))
-    ax.plot(hours_local, p["cc_rock_held"], color="0.5", lw=1.0, label="held-out bedrock")
-    ax.set_ylabel("Coherence"); ax.set_xlabel("Local time (hr)")
-    local_ticks(ax, hours_local)
-    ax.set_title("Hourly lag-1 coherence by height band", fontsize=10)
-    ax.legend(fontsize=7, loc="lower left")
-
-    ax = axes[1, 2]
-    if have_T:
-        for k, colour in zip(keys + ["rock_held"], list(colours) + ["0.5"]):
-            if "curve_" + k not in p.files:
-                continue
-            mid, med, q1, q3, cnt = p["curve_" + k]
-            if mid.size == 0:
-                continue
-            ax.fill_between(mid, q1, q3, color=colour, alpha=0.15)
-            ax.plot(mid, med, ".-", color=colour, lw=1.0, label=band_label(k))
-        ax.axvline(0, color="k", lw=0.5, ls=":")
-        ax.axhline(0, color="k", lw=0.5)
-        ax.set_xlabel("Air (°C)"); ax.set_ylabel("Backscatter (dB)")
-        ax.set_title("Brightness against the air at the pixel's height: median and "
-                     "quartiles", fontsize=10)
-        ax.legend(fontsize=7, loc="lower left")
-    else:
-        ax.text(0.5, 0.5, "no station temperature", ha="center", va="center",
-                transform=ax.transAxes)
-    fig.suptitle(f"{name}: the surface's brightness as a melt gauge "
-                 f"(upper antenna, {hc[-1] - hc[0] + args.width:.0f} h)", fontsize=12)
-    fig.tight_layout()
-    fig.savefig(path, dpi=130)
-    plt.close(fig)
-    print(f"wrote {path}")
-
-
 def campaigns(args):
-    """The campaigns side by side: brightness clocks, swings, and the anomaly."""
+    """The campaigns side by side in one table: swing, trough hour, and the anomaly."""
     rows = []
     for name in args.campaigns:
         scene = Path(SCENES.get(name, name))
@@ -489,10 +363,6 @@ def campaigns(args):
                "wet_up": float(wet_fraction(upper(p)[:, None])[0]),
                "rT_up": np.nanmedian(p["r_T"][up]),
                "cc_up": np.nanmedian(p["amp_cc"][up]),
-               "clock": clock_composite(upper(p) - np.nanmean(upper(p)), p["hours_local"]),
-               "swings": [np.nanmedian(p["amp"][ice & (z >= lo_) & (z < hi_)])
-                          for lo_, hi_ in zip([-np.inf] + list(p["bands"]),
-                                              list(p["bands"]) + [np.inf])],
                "rock": np.nanmedian(p["amp"][p["held"]]),
                "rms": np.nan, "r_db": np.nan}
         if pf.exists():
@@ -517,61 +387,6 @@ def campaigns(args):
               f"{w['hmin_up']:7.1f}h {w['wet_up']:5.2f} {w['rT_up']:+8.2f} {w['cc_up']:9.3f} "
               f"{w['r_db']:+9.2f} {w['T_mean']:9.1f} {w['T_min']:5.1f} {w['below0']:5.0f} "
               f"{w['pdh']:6.0f} {w['rock']:6.2f}")
-
-    # ---- figure --------------------------------------------------------
-    fig, axes = plt.subplots(2, 2, figsize=(13, 9))
-    Ts = np.array([w["T_mean"] for w in rows])
-    norm = plt.Normalize(np.nanmin(Ts) - 1, np.nanmax(Ts) + 1)
-    colours = [plt.cm.coolwarm(norm(T)) if np.isfinite(T) else "0.5" for T in Ts]
-
-    ax = axes[0, 0]
-    ax.axvspan(0, 6, color="0.93", zorder=0)
-    for w, colour in zip(rows, colours):
-        ax.plot(np.arange(24) + 0.5, w["clock"], ".-", color=colour, lw=1.2,
-                label=f"{w['name']} ({w['T_mean']:.0f} °C)")
-    ax.axhline(0, color="k", lw=0.5)
-    ax.set_xlabel("Local time (hr)"); ax.set_ylabel("Backscatter (dB)")
-    ax.set_xlim(0, 24); ax.set_xticks([0, 6, 12, 18, 24])
-    ax.set_title(f"Brightness of the ice above {args.bands[-1]:.0f} m by local hour "
-                 f"(colour: mean air at {REFERENCE_HEIGHT:.0f} m; shading: night)",
-                 fontsize=10)
-    ax.legend(fontsize=7)
-
-    ax = axes[0, 1]
-    centres = np.arange(len(rows[0]["swings"]))
-    labels = [band_label(f"ice_{lo_:.0f}_{hi_:.0f}") for lo_, hi_ in
-              zip([-np.inf] + list(args.bands), list(args.bands) + [np.inf])]
-    for w, colour in zip(rows, colours):
-        ax.plot(centres, w["swings"], "o-", color=colour, lw=1.2, label=w["name"])
-        ax.plot([centres[-1] + 1], [w["rock"]], "s", color=colour)
-    ax.set_xticks(list(centres) + [centres[-1] + 1])
-    ax.set_xticklabels(labels + ["bedrock"], rotation=20, fontsize=8)
-    ax.set_ylabel("Swing (dB)")
-    ax.set_title("Median diurnal swing per pixel (fitted sinusoid, peak to peak) by "
-                 "height band; squares: bedrock", fontsize=10)
-    ax.legend(fontsize=7)
-
-    for ax, key, xlabel, title in (
-            (axes[1, 0], "swing_up", "Swing (dB)",
-             f"The displacement anomaly against the brightness swing above "
-             f"{args.bands[-1]:.0f} m"),
-            (axes[1, 1], "T_mean", "Air (°C)",
-             f"The displacement anomaly against the mean air at {REFERENCE_HEIGHT:.0f} m")):
-        for w, colour in zip(rows, colours):
-            if np.isfinite(w["rms"]) and np.isfinite(w[key]):
-                ax.plot(w[key], w["rms"], "o", color=colour, ms=9, mec="k")
-                ax.annotate(w["name"], (w[key], w["rms"]), (4, 4),
-                            textcoords="offset points", fontsize=8)
-        ax.set_xlabel(xlabel); ax.set_ylabel("Anomaly RMS (mm)")
-        ax.set_ylim(bottom=0)
-        ax.set_title(title, fontsize=10)
-    fig.suptitle("Mount Baker campaigns: the surface's brightness cycle and the diurnal "
-                 "displacement anomaly", fontsize=12)
-    fig.tight_layout()
-    path = args.outdir / "25_melt_campaigns.png"
-    fig.savefig(path, dpi=130)
-    plt.close(fig)
-    print(f"wrote {path}")
 
 
 def main():
@@ -601,9 +416,7 @@ def main():
     ap.add_argument("--min-count", type=int, default=200,
                     help="pixel-hours a transfer-curve bin needs")
     ap.add_argument("--recompute", action="store_true")
-    ap.add_argument("--outdir", type=Path, default=Path("docs/figures"))
     args = ap.parse_args()
-    args.outdir.mkdir(parents=True, exist_ok=True)
 
     if args.campaigns:
         campaigns(args)
@@ -630,7 +443,6 @@ def main():
         print(f"wrote {cache}")
         p = np.load(cache, allow_pickle=True)
     report(name, p, args)
-    figure(name, p, args, args.outdir / f"24_melt_{name}.png")
 
 
 if __name__ == "__main__":
