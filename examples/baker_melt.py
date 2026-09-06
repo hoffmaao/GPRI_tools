@@ -55,7 +55,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from baker_aps import SCENES, load, split_mask                       # noqa: E402
 from baker_north_side import decimated_par                            # noqa: E402
-from baker_pixels import pixels_path                                  # noqa: E402
+from baker_pixels import load_pixels, pixels_path                     # noqa: E402
 
 from gpri_tools.geocode import BAKERBEND1_HEADING, RadarGeometry          # noqa: E402
 from gpri_tools.glaciers import glacier_mask, load_outlines, stable_ground_mask  # noqa: E402
@@ -356,12 +356,15 @@ def campaigns(args):
                "cc_up": np.nanmedian(p["amp_cc"][up]),
                "rock": np.nanmedian(p["amp"][p["held"]]),
                "rms": np.nan, "r_db": np.nan}
-        if pf.exists():
-            q = np.load(pf)
+        q = load_pixels(scene, args.antenna, args.decimate)
+        if q is None and pf.exists():
+            print(f"{name}: stale pixels cache ({pf}); rerun baker_pixels.py "
+                  f"for its columns")
+        if q is not None:
             row["rms"] = float(np.nanstd(q["template"]))
             # the anomaly against the upper glacier's brightness, epoch by epoch
             key = "db_ice_%.0f_inf" % p["bands"][-1]
-            if key in q.files and q[key].size == q["template"].size:
+            if key in q and q[key].size == q["template"].size:
                 y = q[key] - q["db_rock_fit"]
                 ok = np.isfinite(y) & np.isfinite(q["template"])
                 row["r_db"] = np.corrcoef(y[ok], q["template"][ok])[0, 1]

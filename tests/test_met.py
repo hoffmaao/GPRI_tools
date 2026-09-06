@@ -100,7 +100,16 @@ def test_interp_to_lands_on_epochs_and_refuses_gaps():
     out = met.interp_to(t, y, x)
     assert out[0] == pytest.approx(5.0)         # halfway between samples
     assert np.isnan(out[2]) and np.isnan(out[3])   # outside the record
-    assert np.isfinite(out[1])                  # inside, across a 5 h gap
+    assert np.isnan(out[1])            # inside, but across a 5 h gap of no rows
+
+
+def test_interp_to_spans_a_gap_within_the_bound():
+    """Rows an hour apart still interpolate; the bound is on the span, not the rows."""
+    t = np.array(["2017-08-03T00:00", "2017-08-03T02:00"], dtype="datetime64[m]")
+    y = np.array([0.0, 20.0])
+    x = np.array(["2017-08-03T01:00"], dtype="datetime64[m]")
+    assert met.interp_to(t, y, x)[0] == pytest.approx(10.0)      # 2 h, the default
+    assert np.isnan(met.interp_to(t, y, x, max_gap_s=3600)[0])   # tightened to 1 h
 
 
 def test_interp_to_leaves_an_outage_empty():

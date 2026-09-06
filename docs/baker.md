@@ -679,7 +679,7 @@ also when the glacier melts.
 
 `examples/baker_weather_plots.py` draws the case (`22_weather_<scene>.png`):
 the ice anomaly and the air 0.8 km away as time series, positive toward the
-radar with the local night shaded, then LOS velocity and displacement
+radar with the local night (00–06) shaded, then LOS velocity and displacement
 against temperature, coloured by hour of day, with held-out bedrock behind
 at the same scale. A response with no memory plots as a line; a delayed one
 plots as a loop whose width is the lag.

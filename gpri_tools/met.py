@@ -106,7 +106,8 @@ def nearby_stations(lat, lon, radius_km=30.0, state=None, networks=("SNTL",),
         q["stateCds"] = state
     url = f"{AWDB}/stations?{urllib.parse.urlencode(q)}"
     cache = None if cache_dir is None else \
-        Path(cache_dir) / f"stations_{state or 'all'}_{'-'.join(networks)}.json"
+        Path(cache_dir) / (f"stations_{state or 'all'}_{'-'.join(networks)}_"
+                           f"{'active' if active_only else 'all'}.json")
     out = []
     for s in _get(url, cache):
         if s.get("latitude") is None or s.get("longitude") is None:
@@ -227,12 +228,16 @@ def fetch_era5(lat, lon, begin, end, variables=ERA5_HOURLY,
     return out
 
 
-def interp_to(times, values, targets):
+def interp_to(times, values, targets, max_gap_s=2 * 3600):
     """Linear interpolation of a met series onto radar epochs.
 
-    Both clocks are ``datetime64``; the result is NaN outside the series and
-    wherever the two bracketing samples are not both finite, so a gap in a
-    station record stays a gap instead of being bridged silently.
+    Both clocks are ``datetime64``.  A target keeps a value only where it lands
+    on a reported sample, or where the two samples bracketing it are both
+    finite *and* no more than ``max_gap_s`` apart; everything else, including
+    every target outside the series, is NaN.  Both conditions are needed
+    because a station records an outage two ways: as rows carrying no value,
+    and as rows that are simply absent.  Either way the gap stays a gap instead
+    of being bridged silently.
     """
     t = np.asarray(times).astype("datetime64[s]").astype(np.int64)
     y = np.asarray(values, float)
@@ -247,7 +252,8 @@ def interp_to(times, values, targets):
     lo = np.clip(hi - 1, 0, t.size - 1)
     hic = np.clip(hi, 0, t.size - 1)
     on = (t[hic] == x) & ok[hic]                 # the target lands on a sample
-    between = (hi > 0) & (hi < t.size) & ok[lo] & ok[hic]
+    between = ((hi > 0) & (hi < t.size) & ok[lo] & ok[hic]
+               & (t[hic] - t[lo] <= max_gap_s))
     return np.where(on | between, out, np.nan)
 
 

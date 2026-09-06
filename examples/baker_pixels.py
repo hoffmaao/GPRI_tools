@@ -86,6 +86,22 @@ def pixels_path(scene: Path, antenna: str, dec: int) -> Path:
     return root / scene.name / f"pixels_{antenna[0].lower()}_dec{dec}.npz"
 
 
+def load_pixels(scene: Path, antenna: str, dec: int):
+    """The cached per-pixel products, or None if there are none to trust.
+
+    A file written before ``CACHE_VERSION`` — one whose stamp is missing or
+    older — is stale rather than usable, because the quantities in it were
+    computed to a definition the code no longer uses.
+    """
+    npz = pixels_path(scene, antenna, dec)
+    if not npz.exists():
+        return None
+    p = dict(np.load(npz, allow_pickle=True))
+    if int(p.get("cache_version", 0)) < CACHE_VERSION:
+        return None
+    return p
+
+
 def compute(scene, args):
     """Per-pixel shares, rates, geometry and backscatter for one scene."""
     stack, net, phase, cc, r, az, n = load(scene, args.decimate, 0,
@@ -238,15 +254,12 @@ def main():
     day = scene.name + ("" if args.antenna == "upper" else f"_{args.antenna}")
 
     npz = pixels_path(scene, args.antenna, args.decimate)
-    p = None
-    if npz.exists() and not args.recompute:
-        p = dict(np.load(npz, allow_pickle=True))
-        if int(p.get("cache_version", 0)) < CACHE_VERSION:
+    p = None if args.recompute else load_pixels(scene, args.antenna, args.decimate)
+    if p is not None:
+        print(f"read {npz}")
+    else:
+        if npz.exists() and not args.recompute:
             print(f"{npz} is older than cache version {CACHE_VERSION}; rebuilding")
-            p = None
-        else:
-            print(f"read {npz}")
-    if p is None:
         p = compute(scene, args)
         npz.parent.mkdir(parents=True, exist_ok=True)
         np.savez(npz, cache_version=CACHE_VERSION, **p)

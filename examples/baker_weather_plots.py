@@ -6,7 +6,7 @@
 Three panels per campaign, all on the radar's own clock:
 
 1. the ice anomaly and the air temperature 0.8 km away, as time series,
-   positive toward the radar, with the local night shaded;
+   positive toward the radar, with the local night (00-06) shaded;
 2. **LOS velocity** against temperature, colour-coded by hour of day;
 3. **displacement anomaly** against temperature, the same way.
 
@@ -92,7 +92,7 @@ def main():
         ax2.set_ylabel("Air temperature (°C)", color="tab:red")
         ax2.tick_params(axis="y", colors="tab:red")
         for night in np.arange(-24, hours[-1] + 24, 24.0):
-            lo, hi = night + (3.5 - origin), night + (13.0 - origin)
+            lo, hi = night + (7.0 - origin), night + (13.0 - origin)
             ax.axvspan(max(lo, 0), min(hi, hours[-1]), color="0.93", zorder=0)
         ax.set_xlim(0, hours[-1])
         ax.legend(loc="upper left", fontsize=8)
