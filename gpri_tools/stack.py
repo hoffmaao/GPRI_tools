@@ -505,6 +505,19 @@ class SlcPairStack(_PairStack):
         """Epoch ``e``'s SLC, cropped to the stack's common frame."""
         return self._slc(e)
 
+    def backscatter(self, e, looks=(1, 1)):
+        """Epoch ``e``'s intensity in dB, boxcar-multilooked by ``looks``.
+
+        One number per (multilooked) pixel per epoch: the time series of it
+        says whether the *surface* changed between acquisitions — a snow
+        surface that wets by day and refreezes by night swings by decibels
+        at Ku band, bare rock does not — independently of the phase.  The
+        same ``looks`` as the interferograms keeps the two on one grid.
+        """
+        power = np.abs(self._slc(e)) ** 2
+        return (10 * np.log10(np.maximum(_multilook(power, looks), 1e-30))
+                ).astype(np.float32)
+
     def mean_intensity(self, epochs=None, max_epochs=24):
         """Mean ``|s|**2`` over ``epochs`` — a backscatter backdrop.
 

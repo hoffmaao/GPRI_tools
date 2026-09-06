@@ -46,6 +46,9 @@ psinterp/      PS-interpolation unwrapping over decorrelated ground
 timeseries/    network inversion, stacking, LOS displacement
 pairlsq/       single-step pair-domain weighted least squares, with uncertainties
 diurnal/       harmonic analysis, and telling ice from atmosphere
+met/           SNOTEL and ERA5 beside the radar, on the radar's clock
+melt/          surface wetness from the backscatter: hourly means, each pixel's
+               diurnal swing and clock, brightness against the air
 geocode/       polar radar geometry to a local stereographic map frame
 heading/       the scan heading, measured from a DEM's shadows
 coregister/    azimuth offsets of a campaign whose tripod turned
@@ -98,7 +101,9 @@ capability above was built for, and it is the only example in this repository.
 - [`docs/baker.md`](docs/baker.md) — the analysis and what it found: the
   atmospheric ladder scored on held-out bedrock, the RGI reference audit, the
   per-pixel diurnal null, the population night-time trough, three two-cycle
-  campaigns and whether the diurnal repeats from one year to the next.
+  campaigns, whether the diurnal repeats from one year to the next, the
+  weather beside the radar, which ice carries the waveform, and the
+  surface's brightness read as a melt gauge.
 - [`docs/campaigns.md`](docs/campaigns.md) — the campaign inventory, the
   measured scan headings and the per-campaign processing notes.
 - [`docs/atmosphere.md`](docs/atmosphere.md) — the correction ladder in full.
@@ -107,7 +112,7 @@ capability above was built for, and it is the only example in this repository.
 
 ```bash
 pip install -e '.[all]'      # numpy, scipy + pyproj, rasterio, matplotlib
-pytest                       # 344 tests
+pytest                       # 375 tests
 ```
 
 Only `numpy` and `scipy` are required. `pyproj` and `rasterio` are needed for
@@ -194,11 +199,35 @@ python examples/baker_seasons.py --scenes 20170713_full 20170803 20170827
 python examples/baker_seasons.py --detrend linear   # the same on per-pixel linear trends
 # what repeats hour to hour, for the campaigns that ran more than one day
 python examples/baker_composite.py --scenes 20170827 20180808 20190719
+# the weather beside the radar (SNOTEL + ERA5, a week either side, cached), and
+# what the ice does with it: the stratification forward model, the lag, the ice
+# against temperature, and which pixels carry the waveform
+CAMPAIGNS="20170713_full 20190719 20170913 20170803_full 20170827 20180808"
+# the population series each of them reads
+for s in $CAMPAIGNS; do python examples/baker_population.py --scene $s --decimate 16 --rgi; done
+# the same two days again with the height screen in the ladder
+for s in 20170803_full 20180808; do python examples/baker_population.py --scene $s --decimate 16 --rgi --height-screen; done
+python examples/baker_met.py
+python examples/baker_stratification.py --scene 20170803_full
+python examples/baker_lag.py --scenes 20170803_full 20180808 20190719
+python examples/baker_weather_plots.py --scenes 20170803_full 20180808 20190719
+for s in $CAMPAIGNS; do python examples/baker_pixels.py --scene $s; done
+# the surface's brightness as a melt gauge: the per-pixel tables, per campaign
+# and side by side, and every epoch's raw backscatter kept on disk
+for s in $CAMPAIGNS; do python examples/baker_melt.py --scene $s; done
+python examples/baker_melt.py --campaigns $CAMPAIGNS
+# the figures of that brightness: the radar image through the day as a grey-scale
+# movie and the glacier's mean dB against UTC, then the ice's mean LOS velocity
+# per named catchment over that same glacier-mean dB
+for s in $CAMPAIGNS; do python examples/baker_brightness.py --scene $s; done
+for s in $CAMPAIGNS; do python examples/baker_catchments.py --scene $s; done
 ```
 
-`bin/run_scene.sh <scene> [upper|lower|both]` runs that whole chain for one
-scene, both antennas side by side, logging each step under
-`$GPRI_WORK_ROOT/<scene>/logs/`.
+`bin/run_scene.sh <scene> [upper|lower|both]` runs the deformation chain for
+one scene — the corrections, the rates, the population series, the movies and
+closure — both antennas side by side, logging each step under
+`$GPRI_WORK_ROOT/<scene>/logs/`. The weather, pixel, melt, brightness and
+catchment steps above are not in it, and are run scene by scene.
 
 ## The scan heading is not in the data
 

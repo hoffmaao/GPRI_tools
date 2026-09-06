@@ -25,6 +25,8 @@ Pipeline
 10. :mod:`gpri_tools.timeseries`    network inversion, stacking, LOS displacement
 10b. :mod:`gpri_tools.pairlsq`      single-step pair-domain WLS with uncertainties
 11. :mod:`gpri_tools.diurnal`       harmonic analysis, and telling ice from atmosphere
+11b. :mod:`gpri_tools.met`          SNOTEL and ERA5 beside the radar, on the radar's clock
+11c. :mod:`gpri_tools.melt`         surface wetness read from the backscatter
 12. :mod:`gpri_tools.geocode`       polar radar geometry to a local stereographic map
 12b. :mod:`gpri_tools.heading`      the scan heading, measured from a DEM's shadows
 12c. :mod:`gpri_tools.coregister`   azimuth offsets of a campaign whose tripod turned
@@ -43,7 +45,7 @@ from __future__ import annotations
 __version__ = "0.7.0"
 
 from . import (aps, atmosphere, closure, covariance, diurnal, focus, gamma,
-               coregister, geocode, glaciers, heading,
+               coregister, geocode, glaciers, heading, melt, met,
                network, pairlsq, phaselink, psinterp, refractivity, stack,
                timeseries)
 from .aps import epoch_screen_correction, invert_screens, turbulence_screen
@@ -65,7 +67,7 @@ from .timeseries import invert_network, los_displacement, stack_velocity
 __all__ = [
     "__version__",
     "aps", "atmosphere", "closure", "covariance", "diurnal", "focus", "gamma",
-    "coregister", "geocode", "heading",
+    "coregister", "geocode", "heading", "melt", "met",
     "network", "pairlsq", "phaselink", "psinterp", "refractivity", "stack",
     "timeseries",
     "ParFile", "read_image", "read_slc", "write_image",

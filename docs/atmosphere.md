@@ -199,18 +199,25 @@ correction removes 36 % of the closure RMS. At ~0.1 mm it is far below the
 atmospheric error at Baker, but on the 45-hour 20170827 campaign (whose
 `itab` closes natively) it accumulates over an order of magnitude more pairs.
 
-## Why there is no stratified term
+## The stratified term
 
 A height-dependent (stratified) correction, standard in spaceborne InSAR, is
 unidentifiable for a GPRI without a DEM: every pixel shares one antenna
 elevation angle, so beam height is exactly `alt + r·sin(elev)` — perfectly
 linear in slant range, and absorbed indistinguishably by the uniform-mixing
 ramp the matched filter already fits. Separating them requires per-pixel
-terrain height. A DEM now does accompany the data — the Copernicus tile
-`gpri heading` measures the scan heading against — so the term is
-identifiable in principle. It has not been fitted, and the caveat that
-runs through [`baker.md`](baker.md) stands until it is: rock sitting at the rock's
-heights cannot see a term that shows only on the higher, farther ice.
+terrain height, which the DEM behind `gpri heading` supplies
+(`gpri_tools.heading.target_heights`).
+
+It is fitted as a covariate rather than as a stage of its own:
+`epoch_screen_correction(..., covariates={"height": z_px})` appends the
+centred height column to each epoch's design matrix, and
+`examples/baker_population.py --height-screen` runs the ladder that way,
+writing its products beside the standard ones. What that changed on the
+Baker data, and what it did not, is in [`baker.md`](baker.md) ("The weather,
+and what the ice does with it"). Where the fit has nothing to constrain it
+the old caveat stands unaltered: rock sitting at the rock's heights and
+ranges cannot see a term that shows only on the higher, farther ice.
 
 ## Recommended pipeline
 

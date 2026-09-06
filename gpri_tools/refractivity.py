@@ -167,6 +167,53 @@ class MetRecord:
 
 
 # ----------------------------------------------------- refractivity -> phase
+R_DRY = 287.058        # dry-air gas constant, J/(kg K)
+G0 = 9.80665           # standard gravity, m/s^2
+
+
+def stratified_delay(slant_range, target_height, radar_height, temperature_c,
+                     lapse_c_per_km, pressure_hpa, relative_humidity,
+                     n_steps=32):
+    """One-way path delay (metres) through an atmosphere with a lapse rate.
+
+    The atmosphere is horizontally uniform and hydrostatic, its temperature
+    linear in height (``T(z) = T0 + Gamma (z - z0)``) and its relative humidity
+    constant; the path is the straight line from radar to target, so height
+    varies linearly along it.  The integral is a trapezium sum over
+    ``n_steps``.
+
+    The reason to want this: a *change* of lapse rate between two epochs writes
+    a different delay onto targets at different heights, and that difference is
+    indistinguishable in phase from the targets having moved.  A positive
+    ``lapse_c_per_km`` is an inversion — warm air over cold — which is the
+    state that most resembles ice accelerating.
+
+    Every one of those assumptions is an approximation; the function is for
+    orders of magnitude and for sensitivities in mm per °C/km, not for
+    correcting an interferogram.
+    """
+    r = np.asarray(slant_range, float)
+    zt = np.asarray(target_height, float)
+    gamma = float(lapse_c_per_km) / 1000.0             # degC per metre
+    t0 = float(temperature_c) + 273.15
+
+    frac = np.linspace(0.0, 1.0, int(n_steps))
+    total = np.zeros(np.broadcast(r, zt).shape)
+    prev = None
+    for k, f in enumerate(frac):
+        z = radar_height + (zt - radar_height) * f
+        t_k = np.maximum(t0 + gamma * (z - radar_height), 180.0)
+        if abs(gamma) < 1e-9:
+            p = pressure_hpa * np.exp(-G0 * (z - radar_height) / (R_DRY * t0))
+        else:
+            p = pressure_hpa * (t_k / t0) ** (-G0 / (R_DRY * gamma))
+        n = refractivity(p, t_k - 273.15, relative_humidity)
+        if prev is not None:
+            total += 0.5 * (prev + n) * (frac[k] - frac[k - 1])
+        prev = n
+    return 1e-6 * total * r
+
+
 def ramp_from_delta_n(delta_N, wavelength):
     """Range-phase slope (rad/m) produced by a refractivity change in N-units.
 

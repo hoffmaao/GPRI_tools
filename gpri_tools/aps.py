@@ -62,14 +62,19 @@ from the ice itself.  Where there is no stable ground within reach of the
 kernel, the screen is zero and the phase is left alone, with the
 ``quality`` map saying so.
 
-One correction that is *not* here, and why
-------------------------------------------
+The stratified term, and what it takes to fit it
+------------------------------------------------
 A stratified (height-dependent) term, standard in spaceborne InSAR, is
-**unidentifiable for a GPRI without a DEM**: every pixel shares the same
-antenna elevation angle, so beam height is exactly ``alt + r sin(elev)`` —
-perfectly linear in slant range and therefore absorbed, indistinguishably,
-by the uniform-mixing ramp the matched filter already estimates.  Separating
-them needs per-pixel terrain height, and no DEM accompanies the data.
+**unidentifiable for a GPRI from the radar geometry alone**: every pixel
+shares the same antenna elevation angle, so beam height is exactly
+``alt + r sin(elev)`` — perfectly linear in slant range and therefore
+absorbed, indistinguishably, by the uniform-mixing ramp the matched filter
+already estimates.  Separating them needs per-pixel terrain height, which a
+DEM supplies (:func:`gpri_tools.heading.target_heights`): pass it to
+:func:`epoch_screen_correction` as a ``covariates`` entry and the fit carries
+a height column beside the range terms.  It is then only as good as the
+stable ground constraining it — where no rock sits at a range, the height
+term is extrapolated over the target like every other.
 """
 from __future__ import annotations
 
@@ -224,7 +229,8 @@ def displacement_ramp_to_delta_n(slope):
 
 
 def epoch_screen_correction(displacement, mask, slant_range, azimuth=None,
-                            model="linear", weights=None, rcond=None):
+                            model="linear", weights=None, rcond=None,
+                            covariates=None):
     """Fit-and-remove a screen per epoch, on the displacement series itself.
 
     The drift killer.  After network integration, each epoch's accumulated
@@ -254,13 +260,31 @@ def epoch_screen_correction(displacement, mask, slant_range, azimuth=None,
     weights : array (na, nr), optional
         Quality inside the mask (mean coherence is the natural choice).
 
+    covariates : mapping of name -> array, optional
+        Extra per-pixel predictors, each the shape of one epoch's image, fitted
+        alongside the ``model`` terms and centred on their mean over the mask.
+
+        The one that matters for a ground-based radar is **target height**.
+        The built-in terms are functions of range and azimuth only, so a screen
+        made of them can express how delay grows along the beam but not how it
+        depends on how far the beam has climbed — and a stratified atmosphere
+        depends on exactly that.  Where stable ground and the target of
+        interest sit at the same ranges but different heights, a height
+        covariate is the difference between removing the stratification and
+        extrapolating a range ramp over it.
+
+        A pixel whose covariate is not finite is left out of the fit, and the
+        corrected series is NaN there: no screen is evaluated at a height the
+        DEM does not know.
+
     Returns
     -------
     corrected : array, same shape
     coeffs : array (n_epochs, n_terms)
-        Per-epoch fitted coefficients, in metres, for the centred predictors.
-        Feed the ``"r"`` column to :func:`displacement_ramp_to_delta_n` for
-        the accumulated refractivity series it implies.
+        Per-epoch fitted coefficients, in metres, for the centred predictors:
+        the ``model`` terms first, then one column per covariate in the order
+        given.  Feed the ``"r"`` column to :func:`displacement_ramp_to_delta_n`
+        for the accumulated refractivity series it implies.
     """
     from .atmosphere import _design_at
 
@@ -283,10 +307,27 @@ def epoch_screen_correction(displacement, mask, slant_range, azimuth=None,
     rows, cols = np.nonzero(m)
     A = _design_at(terms, rc[cols], ac[rows])
 
+    extra = []
+    if covariates:
+        for name, field in covariates.items():
+            v = np.asarray(field, float)
+            if v.shape != d.shape[1:]:
+                raise ValueError(f"covariate {name!r} has shape {v.shape}, "
+                                 f"expected {d.shape[1:]}")
+            # centre on the fitted pixels: the offset term already carries the
+            # mean, and an uncentred covariate makes the normal equations sick
+            v = v - np.nanmean(v[m])
+            extra.append(v)
+        A = np.column_stack([A] + [np.nan_to_num(v[rows, cols]) for v in extra])
+
     w = np.ones(rows.size) if weights is None else \
         np.clip(np.nan_to_num(np.asarray(weights, float)[rows, cols]), 0.0, None)
     Y = np.nan_to_num(d[:, rows, cols]).T                # (n_masked, n_epochs)
     finite = np.isfinite(d[:, rows, cols]).all(axis=0)
+    for v in extra:
+        # a missing covariate — a hole in the DEM, say — is not a pixel at the
+        # mask's mean height; it is one this screen has nothing to say about
+        finite &= np.isfinite(v[rows, cols])
     w = w * finite
 
     sw = np.sqrt(w)[:, None]
@@ -294,6 +335,8 @@ def epoch_screen_correction(displacement, mask, slant_range, azimuth=None,
 
     A_full = _design_at(terms, np.broadcast_to(rc, d.shape[1:]).ravel(),
                         np.broadcast_to(ac[:, None], d.shape[1:]).ravel())
+    if extra:
+        A_full = np.column_stack([A_full] + [v.ravel() for v in extra])
     screen = (A_full @ coeffs).T.reshape(d.shape)
     return d - screen, coeffs.T
 

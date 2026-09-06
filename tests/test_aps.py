@@ -309,3 +309,56 @@ def test_unwrapped_turbulence_smooths_values_not_phasors():
     big = 3.0 * np.ones(truth.shape)               # |values| > pi
     screen2, _ = turbulence_screen(big, mask, sigma=(3, 4), wrapped=False)
     assert screen2[20, 40] == pytest.approx(3.0, abs=1e-6)
+
+
+# --------------------------------------------------- height-aware screen fit
+def test_epoch_screen_covariate_removes_a_height_dependent_field():
+    """A delay that depends on target height is invisible to a range ramp.
+
+    The field here is exactly what a stratified atmosphere writes: part of it
+    grows along the beam, part with how far the beam has climbed.  Stable
+    ground samples only part of the height range, so a range-only screen fits
+    it there and extrapolates badly everywhere else.
+    """
+    from gpri_tools.aps import epoch_screen_correction
+
+    na, nr = 40, 60
+    r = np.linspace(1000.0, 9000.0, nr)
+    z = np.linspace(1200.0, 2600.0, na)[:, None] * np.ones((1, nr))
+    field = 2e-6 * np.broadcast_to(r, (na, nr)) + 5e-6 * z      # metres
+
+    # stable ground only where the terrain is low: rows 0..9, all ranges
+    mask = np.zeros((na, nr), bool)
+    mask[:10] = True
+    d = field[None].copy()
+
+    range_only, _ = epoch_screen_correction(d, mask, r, model="linear")
+    with_height, coeffs = epoch_screen_correction(d, mask, r, model="linear",
+                                                  covariates={"z": z})
+
+    high = np.zeros((na, nr), bool)
+    high[30:] = True                       # the part no stable pixel covers
+
+    # a range-only screen is wrong even on the ground it was fitted to, because
+    # height varies there as well and the model cannot see it -- it removes the
+    # mean and leaves the spread
+    on_mask = np.abs(range_only[0][mask]).max()
+    off_mask = np.abs(range_only[0][high]).max()
+    assert on_mask == pytest.approx(0.8e-3, rel=0.2)
+    # and it is several times worse where no stable pixel constrained it
+    assert off_mask > 4e-3 and off_mask / on_mask > 5
+
+    # the covariate makes the field exactly representable, everywhere
+    assert np.abs(with_height[0]).max() < 1e-9
+    assert coeffs.shape[1] == 3                          # 1, r, z
+    assert coeffs[0, 2] == pytest.approx(5e-6, rel=1e-6)
+
+
+def test_epoch_screen_covariate_checks_its_shape():
+    from gpri_tools.aps import epoch_screen_correction
+
+    d = np.zeros((2, 5, 7))
+    mask = np.ones((5, 7), bool)
+    with pytest.raises(ValueError, match="covariate 'z'"):
+        epoch_screen_correction(d, mask, np.arange(7.0),
+                                covariates={"z": np.zeros((5, 6))})

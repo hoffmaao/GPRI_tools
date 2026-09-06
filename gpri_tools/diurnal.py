@@ -77,7 +77,7 @@ __all__ = [
     "stable_ground_null", "look_vector", "vertical_sensitivity",
     "decompose_los", "DIURNAL", "SEMIDIURNAL", "MIN_CYCLES",
     "DAYS_PER_YEAR", "m_per_yr", "secular_slope", "periodic_detrend",
-    "hour_composite",
+    "hour_composite", "waveform_share", "slope_within",
 ]
 
 #: Periods in days.
@@ -381,6 +381,88 @@ def diurnal_phase(displacement, times, origin_hour=0.0, **kwargs):
 
 
 # ------------------------------------------------- is it ice or is it air?
+def waveform_share(anomaly, template):
+    """How much of a common waveform each pixel carries.
+
+    A population median is a clean waveform; a single pixel is that waveform
+    buried in single-look noise.  The least-squares share of the template
+    in each pixel's series (a fit through the origin, epoch by epoch,
+    missing epochs ignored) is the per-pixel amplitude that survives the
+    noise: 1 where the pixel moves like the population, 0 where it does not
+    move with it at all, and it can be binned by anything known per pixel —
+    range, height, secular rate, distance from the reference ground — to ask
+    what the waveform's amplitude follows.
+
+    Parameters
+    ----------
+    anomaly : array, ``(epochs, ...)``
+        Per-pixel series with any trend already removed, NaN where missing.
+    template : 1-D array, ``(epochs,)``
+        The waveform to project onto, usually the population median.
+
+    Returns
+    -------
+    share, standard_error : arrays of the trailing shape of ``anomaly``.
+    """
+    a = np.asarray(anomaly, float)
+    c = np.asarray(template, float)
+    if a.shape[0] != c.shape[0]:
+        raise ValueError(f"{a.shape[0]} epochs of anomaly for {c.shape[0]} "
+                         "of template")
+    c = c.reshape((-1,) + (1,) * (a.ndim - 1))
+    ok = np.isfinite(a) & np.isfinite(c)
+    num = np.sum(np.where(ok, a * c, 0.0), axis=0)
+    den = np.sum(np.where(ok, c * c, 0.0), axis=0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        share = num / den
+        resid = np.where(ok, a - share * c, np.nan)
+        n = ok.sum(axis=0)
+        se = np.sqrt(np.nansum(resid ** 2, axis=0) / np.maximum(n - 1, 1) / den)
+    return share, se
+
+
+def slope_within(y, x, *keys, min_count=30):
+    """Slope of ``y`` on ``x`` with the ``keys`` held fixed.
+
+    Pixels are grouped into cells that share every key (a range bin and a
+    height bin, say); within each cell both variables lose their cell mean,
+    and one slope is fitted to the pooled residuals.  It is the fixed-effects
+    regression: what ``y`` does with ``x`` among pixels that agree on
+    everything else that was binned.  Cells with fewer than ``min_count``
+    pixels are left out.  NaNs anywhere drop the pixel.
+
+    Returns ``(slope, correlation, n_cells, n_pixels)``; ``slope`` is NaN
+    when no cell is large enough.
+    """
+    y = np.asarray(y, float).ravel()
+    x = np.asarray(x, float).ravel()
+    K = np.column_stack([np.asarray(k).ravel() for k in keys])
+    if not (y.shape[0] == x.shape[0] == K.shape[0]):
+        raise ValueError("y, x and every key must have the same size")
+    ok = np.isfinite(y) & np.isfinite(x) & np.all(np.isfinite(K), axis=1)
+    y, x, K = y[ok], x[ok], K[ok]
+    _, label, count = np.unique(K, axis=0, return_inverse=True,
+                                return_counts=True)
+    label = label.ravel()
+    keep = count[label] >= min_count
+    if not keep.any():
+        return np.nan, np.nan, 0, 0
+    y, x = y[keep], x[keep]
+    label = np.unique(label[keep], return_inverse=True)[1].ravel()
+    # demean within cells
+    n = np.bincount(label)
+    ybar = np.bincount(label, y) / n
+    xbar = np.bincount(label, x) / n
+    dy, dx = y - ybar[label], x - xbar[label]
+    sxx = (dx * dx).sum()
+    if sxx == 0:
+        return np.nan, np.nan, int((n > 0).sum()), int(y.size)
+    slope = (dx * dy).sum() / sxx
+    syy = (dy * dy).sum()
+    corr = (dx * dy).sum() / np.sqrt(sxx * syy) if syy > 0 else np.nan
+    return float(slope), float(corr), int((n > 0).sum()), int(y.size)
+
+
 def range_dependence(amplitude, slant_range, mask=None, min_pixels=50):
     """Regress diurnal amplitude against slant range.
 
