@@ -54,8 +54,10 @@ def catchments_path(scene: Path, antenna: str, dec: int) -> Path:
 
 
 def short_name(name) -> str:
-    """'Coleman Glacier WA' -> 'Coleman'."""
-    words = [w for w in str(name).split() if w not in ("Glacier", "Glaciers", "WA")]
+    """'Coleman Glacier WA' -> 'Coleman'; an unnamed outline gives ''."""
+    if not isinstance(name, str):
+        return ""
+    words = [w for w in name.split() if w not in ("Glacier", "Glaciers", "WA")]
     return " ".join(words)
 
 
@@ -75,7 +77,8 @@ def compute(scene, args):
 
     # the named glaciers with enough coherent ice to average
     masks, names, ids = [], [], []
-    for _, row in gdf.sort_values("Area", ascending=False).iterrows():
+    named = gdf[gdf["Name"].notna()] if "Name" in gdf.columns else gdf[:0]
+    for _, row in named.sort_values("Area", ascending=False).iterrows():
         nm = short_name(row["Name"])
         if not nm:
             continue

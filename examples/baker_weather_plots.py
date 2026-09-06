@@ -35,7 +35,7 @@ import matplotlib.pyplot as plt
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from baker_aps import SCENES                                        # noqa: E402
-from baker_lag import velocity_anomaly                              # noqa: E402
+from baker_lag import clock_origin, velocity_anomaly                # noqa: E402
 from baker_population import population_path                       # noqa: E402
 
 MM_PER_HR_TO_M_PER_YR = 24.0 * 365.25 / 1000.0
@@ -68,7 +68,7 @@ def main():
         if not np.isfinite(temp).any():
             print(f"{name}: no station temperature at these epochs")
             continue
-        origin = float(m["campaign_start"].astype("datetime64[h]").astype(int) % 24)
+        origin = clock_origin(z, m)
         utc = np.mod(hours + origin, 24.0)
 
         ice, rock = z["ice"], z["rock"]

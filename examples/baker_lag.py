@@ -114,6 +114,19 @@ def lagged_correlation(hours, y, forcing, lags_h):
     return out
 
 
+def clock_origin(z, m):
+    """The UTC hour the record opens on, to the minute.
+
+    ``baker_population.py`` saves the exact value; truncating ``campaign_start``
+    to the whole hour instead would report every peak up to an hour early, so
+    the fallback for an older cache keeps the minutes too.
+    """
+    if "origin" in z.files:
+        return float(z["origin"])
+    minutes = np.asarray(m["campaign_start"]).astype("datetime64[m]").astype(np.int64)
+    return float(minutes % (24 * 60)) / 60.0
+
+
 def peak(lags_h, r):
     """``(lag, r)`` where the correlation is most *positive*.
 
@@ -175,9 +188,9 @@ def main():
             print(f"{name}: no forcing series in {metf.name}\n")
             continue
 
-        origin = float(m["campaign_start"].astype("datetime64[h]").astype(int) % 24)
+        origin = clock_origin(z, m)
         print(f"=== {name}  {span:.1f} h ({span / 24:.2f} cycles), "
-              f"record opens at {origin:02.0f} UTC")
+              f"record opens at {origin:05.2f} UTC")
 
         print(f"\n{'24 h harmonic':22s}{'amplitude':>12s}{'peak (UTC)':>12s}{'r2':>7s}")
         phase = {}
