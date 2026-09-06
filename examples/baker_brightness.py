@@ -42,7 +42,7 @@ from matplotlib.animation import FFMpegWriter
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from baker_aps import SCENES, open_stack                            # noqa: E402
-from baker_melt import db_stack_path, melt_path                      # noqa: E402
+from baker_melt import db_stack_path, load_melt, melt_path            # noqa: E402
 from baker_movie import Resampler, decimated_geom                    # noqa: E402
 
 from gpri_tools.geocode import BAKERBEND1_HEADING                    # noqa: E402
@@ -216,9 +216,9 @@ def main():
     scene = Path(SCENES.get(name, name))
     cache = melt_path(scene, args.antenna, args.decimate)
     spath = db_stack_path(scene, args.antenna, args.decimate)
-    if not cache.exists() or not spath.exists():
+    p = load_melt(scene, args.antenna, args.decimate)
+    if p is None:
         sys.exit(f"no brightness for {name}: run baker_melt.py --scene {name} --recompute")
-    p = np.load(cache, allow_pickle=False)
     stack_frames = np.load(spath, mmap_mode="r")
     if stack_frames.shape[0] != p["epoch_hours"].size:
         sys.exit(f"{spath} and {cache} disagree on the epochs: rerun baker_melt.py "

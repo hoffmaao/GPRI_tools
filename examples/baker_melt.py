@@ -39,7 +39,9 @@ epochs x azimuth x range), and that is where the figures of the brightness
 come from — the plain ones of ``baker_brightness.py`` and
 ``baker_catchments.py``, which never have to read the SLCs again; the
 cache's ``db_reference`` is the bedrock median that was taken off
-everything here.
+everything here.  The pair is stamped with ``MELT_CACHE_VERSION``, and
+:func:`load_melt` refuses a cache written to an older definition or one whose
+frames are missing, so no consumer reads a stale one.
 """
 from __future__ import annotations
 
@@ -68,6 +70,10 @@ from gpri_tools.melt import (BinAccumulator, air_temperature_at, bin_by_hour,  #
 HEIGHT_STEP = 200.0                                                   # m
 REFERENCE_HEIGHT = 2600.0                                             # m: the upper glacier
 
+# version 1 is the definition every cache on disk was written to, so a file
+# carrying no stamp is read as 1 rather than thrown away
+MELT_CACHE_VERSION = 1
+
 
 def melt_path(scene: Path, antenna: str, dec: int) -> Path:
     root = Path(os.environ.get("GPRI_WORK_ROOT", "work"))
@@ -77,6 +83,21 @@ def melt_path(scene: Path, antenna: str, dec: int) -> Path:
 def db_stack_path(scene: Path, antenna: str, dec: int) -> Path:
     """Every epoch's backscatter in dB, unreferenced, as ``compute`` streamed it."""
     return melt_path(scene, antenna, dec).with_name(f"db_{antenna[0].lower()}_dec{dec}.npy")
+
+
+def load_melt(scene: Path, antenna: str, dec: int):
+    """The cached melt products, or None if there are none to trust.
+
+    A cache stamped below ``MELT_CACHE_VERSION`` holds quantities computed to a
+    definition the code no longer uses, and one whose companion ``db_*.npy`` is
+    gone cannot answer for the frames; either way there is nothing to read.
+    """
+    cache = melt_path(scene, antenna, dec)
+    if not cache.exists() or not db_stack_path(scene, antenna, dec).exists():
+        return None
+    p = np.load(cache, allow_pickle=True)
+    version = int(p["cache_version"]) if "cache_version" in p.files else 1
+    return None if version < MELT_CACHE_VERSION else p
 
 
 def station_series(name: str, station: str):
@@ -337,10 +358,10 @@ def campaigns(args):
         scene = Path(SCENES.get(name, name))
         mf = melt_path(scene, args.antenna, args.decimate)
         pf = pixels_path(scene, args.antenna, args.decimate)
-        if not mf.exists():
-            print(f"{name}: no melt cache ({mf}); run --scene {name} first")
+        p = load_melt(scene, args.antenna, args.decimate)
+        if p is None:
+            print(f"{name}: no usable melt cache ({mf}); run --scene {name} first")
             continue
-        p = np.load(mf, allow_pickle=True)
         T_h, z_st, lapse = p["T_station"], float(p["station_height"]), float(p["lapse"])
         T = air_temperature_at(REFERENCE_HEIGHT, T_h, z_st, lapse)
         ice, z = p["ice"], p["z"]
@@ -419,17 +440,19 @@ def main():
     name = args.scene
     scene = Path(SCENES.get(name, name))
     cache = melt_path(scene, args.antenna, args.decimate)
-    if cache.exists() and not args.recompute:
-        p = np.load(cache, allow_pickle=True)
+    p = None if args.recompute else load_melt(scene, args.antenna, args.decimate)
+    if p is not None:
         print(f"loaded {cache}")
         if "amp" not in p.files:
             out = dict(p)
             out.update(pixel_days(out, args))
+            out["cache_version"] = MELT_CACHE_VERSION
             np.savez(cache, **out)
             p = np.load(cache, allow_pickle=True)
             print(f"rebuilt the per-pixel statistics in {cache}")
     else:
         out = compute(scene, name, args)
+        out["cache_version"] = MELT_CACHE_VERSION
         cache.parent.mkdir(parents=True, exist_ok=True)
         np.savez(cache, **out)
         print(f"wrote {cache}")

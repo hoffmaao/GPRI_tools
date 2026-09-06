@@ -37,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from baker_aps import SCENES, integrate, load                       # noqa: E402
 from baker_brightness import shade_local_nights, utc_epochs          # noqa: E402
 from baker_lag import velocity_anomaly                               # noqa: E402
-from baker_melt import melt_path                                     # noqa: E402
+from baker_melt import load_melt                                     # noqa: E402
 from baker_north_side import decimated_par                           # noqa: E402
 
 from gpri_tools.aps import epoch_screen_correction, turbulence_screen    # noqa: E402
@@ -129,7 +129,7 @@ def figure(c, melt, name, args):
     ax_b.set_ylabel("Backscatter (dB)")
     ax_b.set_xlabel("Time (UTC)")
     for ax in (ax_v, ax_b):
-        shade_local_nights(ax, t[0], t[-1], c["utc_offset"])
+        shade_local_nights(ax, t[0], t[-1], args.utc_offset)
         ax.grid(alpha=0.3)
     ax_b.set_xlim(t[0], t[-1])
     loc = mdates.AutoDateLocator()
@@ -174,8 +174,7 @@ def main():
         cache.parent.mkdir(parents=True, exist_ok=True)
         np.savez(cache, **c)
         print(f"cached {cache}")
-    mp = melt_path(scene, args.antenna, args.decimate)
-    melt = np.load(mp, allow_pickle=False) if mp.exists() else None
+    melt = load_melt(scene, args.antenna, args.decimate)
     args.outdir.mkdir(parents=True, exist_ok=True)
     figure(c, melt, name, args)
 
