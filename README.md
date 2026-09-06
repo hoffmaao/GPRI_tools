@@ -226,8 +226,8 @@ for s in $CAMPAIGNS; do python examples/baker_catchments.py --scene $s; done
 `bin/run_scene.sh <scene> [upper|lower|both]` runs the deformation chain for
 one scene — the corrections, the rates, the population series, the movies and
 closure — both antennas side by side, logging each step under
-`$GPRI_WORK_ROOT/<scene>/logs/`. The weather, pixel and brightness steps
-above are run scene by scene.
+`$GPRI_WORK_ROOT/<scene>/logs/`. The weather, pixel, melt, brightness and
+catchment steps above are not in it, and are run scene by scene.
 
 ## The scan heading is not in the data
 

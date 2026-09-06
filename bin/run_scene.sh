@@ -1,6 +1,9 @@
 #!/bin/bash
-# The whole figure chain for one scene, as the README's "reproduce" block
-# runs it, with every step logged under $GPRI_WORK_ROOT/<scene>/logs/.
+# The deformation chain for one scene: the two geometry steps, the per-antenna
+# correction, rate and population scripts, the movies and the closure network,
+# with every step logged under $GPRI_WORK_ROOT/<scene>/logs/.  The weather,
+# pixel, melt, brightness and catchment scripts are not part of it; they are
+# run separately, scene by scene, as the README's "reproduce" block shows.
 #
 #   bin/run_scene.sh 20170827            # both antennas, movies, closure
 #   bin/run_scene.sh 20170803 upper      # one antenna, no cross-antenna steps
