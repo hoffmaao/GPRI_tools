@@ -267,7 +267,8 @@ def clock_median(hours, period=24.0, min_r=0.3):
     z = np.exp(2j * np.pi * h / period).mean()
     if np.abs(z) < min_r:
         return np.nan
-    return float(np.mod(np.angle(z) * period / (2 * np.pi), period))
+    out = np.mod(np.angle(z) * period / (2 * np.pi), period)
+    return float(out if out < period else 0.0)
 
 
 def curve_slope(curve):
@@ -307,6 +308,9 @@ def report(name, p, args):
         c = p["cc_" + k]
         comp = clock_composite(y, hours_local)
         ccomp = clock_composite(c, hours_local)
+        fin, cfin = np.isfinite(comp), np.isfinite(ccomp)
+        if not fin.any() or not cfin.any():
+            continue
         m = (ice if k != "rock_held" else held)
         if k != "rock_held":
             lo_, hi_ = [float(v) for v in k.split("_")[1:]]
@@ -318,8 +322,6 @@ def report(name, p, args):
             ok = np.isfinite(T) & np.isfinite(y)
             if ok.sum() > 3:
                 rT = np.corrcoef(T[ok], y[ok])[0, 1]
-        fin = np.isfinite(comp)
-        cfin = np.isfinite(ccomp)
         print(f"  {k:16s} {np.nanmax(y) - np.nanmin(y):9.2f}  "
               f"{np.flatnonzero(fin)[np.nanargmin(comp[fin])] + 0.5:6.1f}h  "
               f"{np.flatnonzero(fin)[np.nanargmax(comp[fin])] + 0.5:6.1f}h  "

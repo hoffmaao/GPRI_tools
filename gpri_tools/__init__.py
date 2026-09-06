@@ -43,7 +43,7 @@ from __future__ import annotations
 __version__ = "0.7.0"
 
 from . import (aps, atmosphere, closure, covariance, diurnal, focus, gamma,
-               coregister, geocode, glaciers, heading,
+               coregister, geocode, glaciers, heading, melt, met,
                network, pairlsq, phaselink, psinterp, refractivity, stack,
                timeseries)
 from .aps import epoch_screen_correction, invert_screens, turbulence_screen
@@ -65,7 +65,7 @@ from .timeseries import invert_network, los_displacement, stack_velocity
 __all__ = [
     "__version__",
     "aps", "atmosphere", "closure", "covariance", "diurnal", "focus", "gamma",
-    "coregister", "geocode", "heading",
+    "coregister", "geocode", "heading", "melt", "met",
     "network", "pairlsq", "phaselink", "psinterp", "refractivity", "stack",
     "timeseries",
     "ParFile", "read_image", "read_slc", "write_image",

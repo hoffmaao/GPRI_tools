@@ -1,4 +1,6 @@
 """Surface wetness from the brightness: binning, the diurnal swing, the duty cycle."""
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -113,3 +115,16 @@ def test_transfer_curve_bins_one_against_the_other():
     assert (q1 <= med).all() and (med <= q3).all()
     with pytest.raises(ValueError):
         transfer_curve(x, y[:-1], np.arange(-0.5, 4.0))
+
+
+def test_clock_median_stays_on_the_clock():
+    """The middle of a set of hours is in [0, 24): symmetric about midnight is 0."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
+    from baker_melt import clock_median
+
+    assert clock_median(np.array([23.5, 0.5])) == pytest.approx(0.0)
+    assert clock_median(np.array([23.5, 23.9, 0.1, 0.5])) < 1.0
+    assert clock_median(np.array([11.8, 12.0, 12.2])) == pytest.approx(12.0, abs=0.1)
+    # hours spread round the whole circle agree on none of them
+    assert np.isnan(clock_median(np.arange(0.0, 24.0, 0.25)))
