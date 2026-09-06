@@ -71,9 +71,8 @@ from gpri_tools.melt import (BinAccumulator, air_temperature_at, bin_by_hour,  #
 HEIGHT_STEP = 200.0                                                   # m
 REFERENCE_HEIGHT = 2600.0                                             # m: the upper glacier
 
-# version 1 is the definition every cache on disk was written to, so a file
-# carrying no stamp is read as 1 rather than thrown away
-MELT_CACHE_VERSION = 1
+# version 2: zero-power azimuth lines NaN, band medians nan-aware
+MELT_CACHE_VERSION = 2
 
 
 def melt_path(scene: Path, antenna: str, dec: int) -> Path:
@@ -97,7 +96,7 @@ def load_melt(scene: Path, antenna: str, dec: int):
     if not cache.exists() or not db_stack_path(scene, antenna, dec).exists():
         return None
     p = np.load(cache, allow_pickle=True)
-    version = int(p["cache_version"]) if "cache_version" in p.files else 1
+    version = int(p["cache_version"]) if "cache_version" in p.files else 0
     return None if version < MELT_CACHE_VERSION else p
 
 

@@ -908,7 +908,8 @@ epoch's backscatter as it came off the SLC, and
 differenced or fitted: a grey-scale movie of the radar image through the
 day, black to white on one scale for the whole record, geocoded with the
 UTC clock in the corner (`figures/26_db_movie_<scene>.mp4`), and one line
-per campaign — the mean backscatter over the glacier outline against UTC,
+per campaign — the mean backscatter over the coherent ice (mean coherence
+≥ 0.5) in the glacier outline against UTC,
 the local night (00–06) shaded (`figures/26_db_series_<scene>.png`). The
 movie is smoothed for display only (a 5-epoch rolling mean and a
 1 × 2 px Gaussian, declared on the frame). Bedrock is in the frame as the

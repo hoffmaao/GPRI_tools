@@ -10,7 +10,8 @@ Two products per campaign, one panel each, both on the UTC clock:
   over the record, so the glacier going dark by day and bright by night is
   watched directly, and bedrock is in the frame as the control.
 * ``26_db_series_<scene>.png`` — one line: the mean backscatter over the
-  glacier outline against time, with the local night (00-06) shaded.
+  coherent ice (mean coherence >= 0.5) in the glacier outline against time,
+  with the local night (00-06) shaded.
 
 The panels carry no titles and nothing but two-word axis labels; what each
 shows is written here and in ``docs/baker.md``.
@@ -66,7 +67,11 @@ def shade_local_nights(ax, t_lo, t_hi, utc_offset, until=6):
 
 
 def series(p, stack_frames, name, args):
-    """The glacier's mean brightness against time: one line."""
+    """The mean backscatter over the coherent ice in the glacier outline.
+
+    One line against time; coherent is ``mean coherence >= 0.5``, the mask
+    ``baker_melt.py`` took the mean under.
+    """
     if "db_ice" in p:
         db_ice = p["db_ice"]
     else:

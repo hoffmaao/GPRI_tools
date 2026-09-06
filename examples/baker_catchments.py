@@ -10,9 +10,10 @@ m/yr, positive toward the radar: the corrected displacement (the validated
 recipe, bedrock reference + per-epoch drift + per-epoch turbulence screen)
 averaged over the catchment and differenced over a ``--window`` of hours,
 because at a two-minute cadence the epoch-to-epoch difference is noise.
-Below, the mean backscatter over the whole glacier outline, in dB, as
-``baker_melt.py`` cached it.  The panels carry no titles and nothing but
-two-word axis labels; the local night (00-06) is shaded.
+Below, the mean backscatter over the coherent ice (mean coherence >= 0.5) in
+the glacier outline, in dB, as ``baker_melt.py`` cached it.  The panels carry
+no titles and nothing but two-word axis labels; the local night (00-06) is
+shaded.
 
 The catchment means are cached in ``work/<scene>/catchments_u_dec16.npz``;
 the figure is rebuilt from the cache and ``melt_u_dec16.npz``.
