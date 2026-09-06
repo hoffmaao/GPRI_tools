@@ -933,7 +933,7 @@ above. Both sit on the UTC clock with the local night shaded. The window
 sets the noise, about ±20 m/yr on the two large catchments and more on
 the small ones, and the first hour of each record is a one-sided
 difference. Two things to read off it: on `20170713_full` the +58 m/yr
-spike at 21:45 UTC is the same two minutes as the 10 dB gain step, an
+spike at 21:45 UTC is the same epoch as the 10 dB gain step, an
 instrument event and not the ice; and on `20170913` Coleman and Roosevelt
 run at 30–60 m/yr toward the radar all day while Mazama and Thunder hover
 about zero, the line of sight seeing the two big catchments' flow and

@@ -139,7 +139,10 @@ def fetch_snotel(triplet, begin, end, elements=SNOTEL_HOURLY,
     float array, "units": {...}, ...}``, with NaN wherever the station
     reported nothing.
 
-    ``utc_offset_hours`` defaults to the station's own ``dataTimeZone``.
+    ``utc_offset_hours`` defaults to the station's own ``dataTimeZone``; a
+    station the API gives no timezone for raises :class:`ValueError` rather
+    than being read as UTC, because a clock silently wrong by eight hours is
+    worse than a station missing from the fit.
     """
     b = np.datetime64(begin, "D") - np.timedelta64(1, "D")
     e = np.datetime64(end, "D") + np.timedelta64(1, "D")
@@ -147,7 +150,11 @@ def fetch_snotel(triplet, begin, end, elements=SNOTEL_HOURLY,
         meta = _get(f"{AWDB}/stations?stationTriplets={urllib.parse.quote(triplet)}",
                     None if cache_dir is None
                     else Path(cache_dir) / f"meta_{triplet.replace(':', '_')}.json")
-        utc_offset_hours = float(meta[0].get("dataTimeZone", 0.0))
+        tz = meta[0].get("dataTimeZone") if meta else None
+        if tz is None:
+            raise ValueError(f"{triplet}: the API reports no dataTimeZone, so "
+                             f"its hourly record cannot be put on a UTC clock")
+        utc_offset_hours = float(tz)
     q = {"stationTriplets": triplet, "elements": ",".join(elements),
          "duration": "HOURLY", "beginDate": str(b), "endDate": str(e),
          "periodRef": "END", "returnFlags": "false"}

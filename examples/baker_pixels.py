@@ -149,7 +149,11 @@ def compute(scene, args):
     # per pixel: the mean brightness, its spread over the record, and its
     # projection on the waveform (dB per mm), the fit-half bedrock's median
     # taken out of every frame as the instrument's gain
-    mean_db, sq_db, gamma, n_db, csq = (np.zeros(ice.shape) for _ in range(5))
+    mean_db, sq_db, n_db = (np.zeros(ice.shape) for _ in range(3))
+    # the projection is a covariance over the epochs the pixel actually has:
+    # the waveform sums to zero over the whole record but not over what is
+    # left of it once a dead azimuth line has taken some epochs away
+    n_c, sum_y, sum_c, sum_yc, sum_cc = (np.zeros(ice.shape) for _ in range(5))
     if hasattr(stack, "backscatter"):
         t0 = time.time()
         for e in range(t.size):
@@ -164,18 +168,24 @@ def compute(scene, args):
             sq_db += frame * frame
             n_db += ok
             if np.isfinite(c[e]):
-                gamma += frame * c[e]
-                csq += ok * (c[e] * c[e])
+                n_c += ok
+                sum_y += frame
+                sum_c += ok * c[e]
+                sum_yc += frame * c[e]
+                sum_cc += ok * (c[e] * c[e])
             if e % 200 == 0:
                 print(f"  backscatter {e + 1}/{t.size} ({time.time() - t0:.0f} s)")
         n = np.where(n_db > 0, n_db, np.nan)
         mean_db /= n
         sd_db = np.sqrt(np.maximum(sq_db / n - mean_db ** 2, 0.0))
-        gamma /= np.where(csq > 0, csq, np.nan)
+        nc = np.where(n_c > 1, n_c, np.nan)
+        var_c = sum_cc - sum_c * sum_c / nc
+        gamma = np.where(var_c > 0, (sum_yc - sum_y * sum_c / nc) / var_c, np.nan)
     else:
         print("no SLCs behind this stack (GAMMA diff0 products): no backscatter")
         sd_db = np.full(ice.shape, np.nan)
-        mean_db[:] = gamma[:] = np.nan
+        gamma = np.full(ice.shape, np.nan)
+        mean_db[:] = np.nan
     out.update({"db_" + k: v for k, v in db.items()})
     out.update(rate=m_per_yr(rate_px * 1000 + np.where(ice, tilt, 0.0), "mm"),
                r=np.broadcast_to(r, ice.shape).copy(), z=z, cc=mean_cc,

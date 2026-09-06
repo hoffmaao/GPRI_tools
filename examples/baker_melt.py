@@ -251,6 +251,25 @@ def clock_composite(series, hours_local, period=24.0):
     return comp
 
 
+def clock_median(hours, period=24.0, min_r=0.3):
+    """Middle of a set of clock hours, as the phase of their mean unit vector.
+
+    An hour wraps, so a plain median of one is wrong wherever the pixels
+    straddle midnight and meaningless where the fitted phase is noise and they
+    are spread round the whole circle.  The mean resultant length says which of
+    the two it is; below ``min_r`` the pixels agree on no hour and the answer
+    is NaN rather than a number that only looks definite.
+    """
+    h = np.asarray(hours, float)
+    h = h[np.isfinite(h)]
+    if h.size == 0:
+        return np.nan
+    z = np.exp(2j * np.pi * h / period).mean()
+    if np.abs(z) < min_r:
+        return np.nan
+    return float(np.mod(np.angle(z) * period / (2 * np.pi), period))
+
+
 def curve_slope(curve):
     """dB per °C over the transfer curve's medians, weighted by their counts."""
     mid, med, cnt = curve[0], curve[1], curve[4]
@@ -321,9 +340,9 @@ def report(name, p, args):
         if not m.any():
             continue
         print(f"  {k:16s} {np.nanmedian(p['amp'][m]):9.2f}  "
-              f"{np.nanmedian(p['hour_dark'][m]):6.1f}h  {np.nanmedian(p['r_T'][m]):+7.2f}  "
+              f"{clock_median(p['hour_dark'][m]):6.1f}h  {np.nanmedian(p['r_T'][m]):+7.2f}  "
               f"{np.nanmedian(p['amp_cc'][m]):8.3f}  "
-              f"{np.nanmedian(p['hour_dark_cc'][m]):6.1f}h  {m.sum():6d}")
+              f"{clock_median(p['hour_dark_cc'][m]):6.1f}h  {m.sum():6d}")
 
     if have_T:
         print("\n  transfer curves, brightness against the air at the pixel's height:")
@@ -359,7 +378,7 @@ def campaigns(args):
                "below0": 100 * np.mean(T[np.isfinite(T)] < 0) if np.isfinite(T).any() else np.nan,
                "pdh": np.nansum(np.maximum(T, 0)) * args.width,
                "swing_up": np.nanmedian(p["amp"][up]),
-               "hmin_up": np.nanmedian(p["hour_dark"][up]),
+               "hmin_up": clock_median(p["hour_dark"][up]),
                "wet_up": float(wet_fraction(upper(p)[:, None])[0]),
                "rT_up": np.nanmedian(p["r_T"][up]),
                "cc_up": np.nanmedian(p["amp_cc"][up]),

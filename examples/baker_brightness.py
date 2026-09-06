@@ -164,15 +164,16 @@ def movie(p, stack_frames, scene, name, args):
     clock = ax.text(0.02, 0.975, "", transform=ax.transAxes, va="top",
                     fontsize=11, family="monospace",
                     bbox=dict(fc="w", alpha=0.8, ec="none"))
+    hours = np.asarray(p["epoch_hours"], float)
+    cadence = float(np.median(np.diff(hours))) * 60 if hours.size > 1 else 0.0
     ax.text(0.02, 0.02,
-            f"smoothed for display: {W} epochs (~{W * 2} min), "
+            f"smoothed for display: {W} epochs (~{W * cadence:.0f} min), "
             f"gaussian {args.s_smooth} px",
             transform=ax.transAxes, fontsize=7, color="0.35",
             bbox=dict(fc="w", alpha=0.7, ec="none"))
     fig.tight_layout()
 
     t_utc = utc_epochs(p)
-    hours = p["epoch_hours"]
     out = args.outdir / f"26_db_movie_{name}.mp4"
     writer = FFMpegWriter(fps=args.fps, codec="h264",
                           extra_args=["-crf", "24", "-pix_fmt", "yuv420p"])

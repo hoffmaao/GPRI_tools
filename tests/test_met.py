@@ -65,6 +65,15 @@ def test_fetch_snotel_reads_offset_from_the_station(monkeypatch):
     assert any("stations?" in u for u in calls)
 
 
+@pytest.mark.parametrize("meta", [[{"dataTimeZone": None}], [{}], []])
+def test_fetch_snotel_refuses_a_station_without_a_clock(monkeypatch, meta):
+    """No timezone is a station to skip, not a station to read as UTC."""
+    monkeypatch.setattr(met, "_get", lambda url, cache=None, timeout=120.0:
+                        meta if "stations?" in url else _snotel_payload())
+    with pytest.raises(ValueError, match="dataTimeZone"):
+        met.fetch_snotel("1011:WA:SNTL", "2017-08-03", "2017-08-03")
+
+
 def test_nearby_stations_filters_network_and_radius(monkeypatch):
     """The API answers with every network in the state; the filter is ours."""
     monkeypatch.setattr(met, "_get", lambda url, cache=None, timeout=120.0: [
