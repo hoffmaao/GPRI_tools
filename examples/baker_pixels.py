@@ -32,8 +32,17 @@ bright, so the per-epoch backscatter of the ice by height band
 (:meth:`gpri_tools.stack.SlcPairStack.backscatter`, bedrock as the gain
 reference) says whether the surface itself cycled over the day.
 
+The figure (``23_pixels_<scene>.png``) is six panels: the share per pixel over
+the scene with the bedrock the screens are fitted on outlined; the secular LOS
+rate, positive towards the radar; the share against each pixel's own secular
+rate, with the dotted line what a fractional speed-up would give; the share
+against target height and against slant range, dashed after the range screen
+alone and solid after the turbulence screen on top; and the ice anomaly with
+the surface's brightness by height band beside it.
+
 Everything per pixel is cached in ``work/<scene>/pixels_u_dec16.npz``; the
-tables and figure are rebuilt from it.
+tables and figure are rebuilt from it.  ``CACHE_VERSION`` stamps the file, and
+a cache written before the current definitions is rebuilt rather than read.
 """
 from __future__ import annotations
 
@@ -62,6 +71,10 @@ from gpri_tools.geocode import BAKERBEND1_HEADING, RadarGeometry          # noqa
 from gpri_tools.glaciers import glacier_mask, load_outlines, stable_ground_mask  # noqa: E402
 from gpri_tools.heading import scene_heading, target_heights              # noqa: E402
 from gpri_tools.timeseries import los_displacement                        # noqa: E402
+
+# bumped whenever a cached quantity's definition changes, so a stale cache is
+# rebuilt instead of quietly answering with the old formula
+CACHE_VERSION = 2
 
 RATE_EDGES = np.array([-30, -5, 0, 5, 10, 20, 30, 45, 60, 90, 150])   # m/yr
 HEIGHT_STEP = 200.0                                                   # m
@@ -225,13 +238,18 @@ def main():
     day = scene.name + ("" if args.antenna == "upper" else f"_{args.antenna}")
 
     npz = pixels_path(scene, args.antenna, args.decimate)
+    p = None
     if npz.exists() and not args.recompute:
         p = dict(np.load(npz, allow_pickle=True))
-        print(f"read {npz}")
-    else:
+        if int(p.get("cache_version", 0)) < CACHE_VERSION:
+            print(f"{npz} is older than cache version {CACHE_VERSION}; rebuilding")
+            p = None
+        else:
+            print(f"read {npz}")
+    if p is None:
         p = compute(scene, args)
         npz.parent.mkdir(parents=True, exist_ok=True)
-        np.savez(npz, **p)
+        np.savez(npz, cache_version=CACHE_VERSION, **p)
         print(f"wrote {npz}")
 
     ice, held = p["ice"], p["held"]
@@ -326,14 +344,12 @@ def main():
     ax.contour(np.broadcast_to(r[0], ice.shape), np.arange(ice.shape[0])[:, None]
                * np.ones(ice.shape[1]), (p["fit"] | held).astype(float), levels=[0.5],
                colors="k", linewidths=0.3)
-    ax.set_title("Share of the ice waveform per pixel (bedrock outlined)", fontsize=10)
     ax.set_xlabel("Slant range (km)"); ax.set_ylabel("Azimuth (px)")
     ax.set_xlim(0, min(11, ext[1]))
     plt.colorbar(im, ax=ax, label="Share")
     ax = axes[0, 1]
     im = ax.imshow(np.where(ice, v, np.nan), extent=ext, aspect="auto", origin="lower",
                    cmap="viridis", vmin=-20, vmax=100, interpolation="nearest")
-    ax.set_title("Secular LOS rate, positive towards the radar", fontsize=10)
     ax.set_xlabel("Slant range (km)"); ax.set_ylabel("Azimuth (px)")
     ax.set_xlim(0, min(11, ext[1]))
     plt.colorbar(im, ax=ax, label="Rate (m/yr)")
@@ -346,15 +362,11 @@ def main():
     ax.plot(vv, prop * vv, "k:", label="proportional")
     ax.axhline(0, color="k", lw=0.5)
     ax.set_xlabel("Rate (m/yr)"); ax.set_ylabel("Share")
-    ax.set_title("Share against each pixel's secular rate\n"
-                 "(dotted: what a fractional speed-up would give)", fontsize=10)
     ax.legend(fontsize=8)
 
-    for ax, x, edges, xlabel, title in (
-            (axes[1, 0], z, np.arange(1000, 3400, HEIGHT_STEP), "Height (m)",
-             "Share against target height"),
-            (axes[1, 1], r, np.arange(0, 12, 1.0), "Slant range (km)",
-             "Share against slant range")):
+    for ax, x, edges, xlabel in (
+            (axes[1, 0], z, np.arange(1000, 3400, HEIGHT_STEP), "Height (m)"),
+            (axes[1, 1], r, np.arange(0, 12, 1.0), "Slant range (km)")):
         for m, s, colour, lab, ls in ((I, sB, "0.5", None, "--"),
                                       (I, sC, "k", "ice", "-"),
                                       (R, sB, "tab:red", None, "--"),
@@ -364,8 +376,6 @@ def main():
                 ax.plot(mid, med, color=colour, ls=ls, marker=".", label=lab)
         ax.axhline(0, color="k", lw=0.5)
         ax.set_xlabel(xlabel); ax.set_ylabel("Share")
-        ax.set_title(title + "\n(dashed: range screen only; solid: + turbulence screen)",
-                     fontsize=10)
         ax.legend(fontsize=8)
 
     ax = axes[1, 2]
@@ -384,18 +394,15 @@ def main():
             ax2.plot(hours, y, color=colour, lw=0.8, label=lab)
         y = p["db_rock_held"] - np.nanmean(p["db_rock_held"]) - ref
         ax2.plot(hours, y, color="0.5", lw=0.8, label="held-out bedrock")
-        ax2.set_ylabel("Backscatter anomaly (dB)")
+        ax2.set_ylabel("Anomaly (dB)")
         ax2.legend(fontsize=7, loc="upper right")
     ax.legend(fontsize=7, loc="upper left")
-    ax.set_title("Ice anomaly and the surface's brightness by height band", fontsize=10)
     origin = float(p["origin"])
     top = ax.secondary_xaxis("top")
     utc = np.arange(np.ceil(origin / 6) * 6, origin + hours[-1] + 1e-9, 6)
     top.set_xticks(utc - origin)
     top.set_xticklabels([f"{int(u) % 24:02d}" for u in utc])
-    top.set_xlabel("UTC (hr)")
-    fig.suptitle(f"{day}: which ice carries the diurnal waveform, from "
-                 f"{p['epoch0']} UTC", fontsize=11)
+    top.set_xlabel("Time (UTC)")
     plt.tight_layout()
     args.outdir.mkdir(parents=True, exist_ok=True)
     out = args.outdir / f"23_pixels_{day}.png"

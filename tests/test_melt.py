@@ -1,12 +1,11 @@
 """Surface wetness from the brightness: binning, the diurnal swing, the duty cycle."""
-from pathlib import Path
-
 import numpy as np
 import pytest
 
 from gpri_tools.melt import (BinAccumulator, air_temperature_at, bin_by_hour, bin_mean,
-                             diurnal_harmonic, diurnal_swing, pixel_correlation,
-                             transfer_curve, wet_fraction)
+                             clock_composite, clock_median, diurnal_harmonic,
+                             diurnal_swing, pixel_correlation, transfer_curve,
+                             wet_fraction)
 
 
 def test_bins_start_at_the_first_epoch_and_absorb_the_endpoint():
@@ -119,12 +118,23 @@ def test_transfer_curve_bins_one_against_the_other():
 
 def test_clock_median_stays_on_the_clock():
     """The middle of a set of hours is in [0, 24): symmetric about midnight is 0."""
-    import sys
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
-    from baker_melt import clock_median
-
     assert clock_median(np.array([23.5, 0.5])) == pytest.approx(0.0)
     assert clock_median(np.array([23.5, 23.9, 0.1, 0.5])) < 1.0
     assert clock_median(np.array([11.8, 12.0, 12.2])) == pytest.approx(12.0, abs=0.1)
+    # a linear median would put hours straddling midnight in the middle of the day
+    assert np.median([23.5, 0.5]) == pytest.approx(12.0)
     # hours spread round the whole circle agree on none of them
     assert np.isnan(clock_median(np.arange(0.0, 24.0, 0.25)))
+    assert np.isnan(clock_median(np.array([np.nan, np.nan])))
+
+
+def test_clock_composite_folds_two_days_onto_one():
+    """Each returned bin is the mean of every hour of the record that fell in it."""
+    hours = np.arange(0.0, 48.0)                 # two days on a local clock
+    series = np.where(hours < 24, 1.0, 3.0)      # the second day twice the first
+    comp = clock_composite(series, hours)
+    assert comp.shape == (24,)
+    assert np.allclose(comp, 2.0)
+    # an hour the record never reached stays empty
+    comp = clock_composite(series[:5], hours[:5])
+    assert np.allclose(comp[:5], 1.0) and np.isnan(comp[5:]).all()

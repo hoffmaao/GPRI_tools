@@ -5,7 +5,8 @@
 
 Three panels per campaign, all on the radar's own clock:
 
-1. the ice anomaly and the air temperature 0.8 km away, as time series;
+1. the ice anomaly and the air temperature 0.8 km away, as time series,
+   positive toward the radar, with the local night shaded;
 2. **LOS velocity** against temperature, colour-coded by hour of day;
 3. **displacement anomaly** against temperature, the same way.
 
@@ -95,8 +96,6 @@ def main():
             ax.axvspan(max(lo, 0), min(hi, hours[-1]), color="0.93", zorder=0)
         ax.set_xlim(0, hours[-1])
         ax.legend(loc="upper left", fontsize=8)
-        ax.set_title(f"{name}: the ice anomaly and the air 0.8 km away "
-                     f"(+ toward radar; shading: local night)", fontsize=10)
 
         # ---- 2 and 3. against temperature, coloured by hour --------------
         for k, (y, y_rock, label) in enumerate(
@@ -117,12 +116,9 @@ def main():
             ax.axhline(0, color="k", lw=0.5)
             ax.set_xlabel("Air temperature (°C)")
             ax.set_ylabel(label)
-            ax.set_title("a line means no lag, a loop means a lag"
-                         if k == 0 else "the same, for displacement",
-                         fontsize=9)
             if k == 1:
                 cb = fig.colorbar(sc, ax=ax, fraction=0.045, pad=0.02)
-                cb.set_label("UTC (hr)")
+                cb.set_label("Time (UTC)")
                 cb.set_ticks([0, 6, 12, 18, 24])
             else:
                 ax.legend(loc="upper left", fontsize=8)

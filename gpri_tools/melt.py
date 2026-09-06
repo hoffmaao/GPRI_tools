@@ -36,8 +36,8 @@ from __future__ import annotations
 import numpy as np
 
 __all__ = ["BinAccumulator", "air_temperature_at", "bin_by_hour", "bin_mean",
-           "diurnal_harmonic", "diurnal_swing", "pixel_correlation", "transfer_curve",
-           "wet_fraction"]
+           "clock_composite", "clock_median", "diurnal_harmonic", "diurnal_swing",
+           "pixel_correlation", "transfer_curve", "wet_fraction"]
 
 
 def bin_by_hour(hours, width=1.0):
@@ -173,6 +173,44 @@ def diurnal_harmonic(hourly, hours, period=24.0, min_bins=12):
     amplitude = np.hypot(beta[..., 1], beta[..., 2])
     hour_max = np.mod(np.arctan2(beta[..., 2], beta[..., 1]) / w, period)
     return amplitude, hour_max, beta[..., 0]
+
+
+def clock_composite(series, hours, period=24.0):
+    """Mean by clock hour of an hourly series: a two-day record on one clock.
+
+    ``hours`` is the clock the bins sit on, so a record that spans two days
+    folds onto one ``period``-long day and each returned bin is the mean of
+    every hour of the record that fell in it.  Bins the record never reached
+    are NaN.
+    """
+    series = np.asarray(series, float)
+    slot = np.mod(np.floor(np.asarray(hours, float)), period).astype(int)
+    comp = np.full(int(period), np.nan)
+    for s in range(int(period)):
+        m = (slot == s) & np.isfinite(series)
+        if m.any():
+            comp[s] = series[m].mean()
+    return comp
+
+
+def clock_median(hours, period=24.0, min_r=0.3):
+    """Middle of a set of clock hours, as the phase of their mean unit vector.
+
+    An hour wraps, so a plain median of one is wrong wherever the values
+    straddle midnight and meaningless where they are spread round the whole
+    circle.  The mean resultant length says which of the two it is; below
+    ``min_r`` they agree on no hour and the answer is NaN rather than a number
+    that only looks definite.  The result is on ``[0, period)``.
+    """
+    h = np.asarray(hours, float)
+    h = h[np.isfinite(h)]
+    if h.size == 0:
+        return np.nan
+    z = np.exp(2j * np.pi * h / period).mean()
+    if np.abs(z) < min_r:
+        return np.nan
+    out = np.mod(np.angle(z) * period / (2 * np.pi), period)
+    return float(out if out < period else 0.0)
 
 
 def wet_fraction(hourly, threshold=None):

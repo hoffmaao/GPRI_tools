@@ -678,10 +678,11 @@ also when the glacier melts.
 ![the ice against the air, 20170803](figures/22_weather_20170803_full.png)
 
 `examples/baker_weather_plots.py` draws the case (`22_weather_<scene>.png`):
-the ice anomaly and the air 0.8 km away as time series, then LOS velocity
-and displacement against temperature, coloured by hour of day, with
-held-out bedrock behind at the same scale. A response with no memory plots
-as a line; a delayed one plots as a loop whose width is the lag.
+the ice anomaly and the air 0.8 km away as time series, positive toward the
+radar with the local night shaded, then LOS velocity and displacement
+against temperature, coloured by hour of day, with held-out bedrock behind
+at the same scale. A response with no memory plots as a line; a delayed one
+plots as a loop whose width is the lag.
 
 Which is the other handle on the question. Meltwater has to reach the bed
 before it can raise the water pressure and let the glacier slide, so a
@@ -722,7 +723,13 @@ version: how the share varies with one of these among pixels that agree on
 the others. The comparison with bedrock is made at two stages, after the
 range-linear epoch screen alone (B) and after the turbulence screen on top
 (C), because the turbulence screen interpolates whatever the rock still
-carries away from the rock and cannot do the same over the ice.
+carries away from the rock and cannot do the same over the ice. The figure
+is six panels: the share per pixel with the fitted bedrock outlined, the
+secular LOS rate positive towards the radar, the share against each pixel's
+own rate with the dotted line what a fractional speed-up would give, the
+share against height and against slant range (dashed after the range screen
+alone, solid after the turbulence screen on top), and the ice anomaly with
+the surface's brightness by height band beside it.
 
 ![which ice carries the waveform, 20170803](figures/23_pixels_20170803_full.png)
 
@@ -996,21 +1003,23 @@ same. On `20180808` the upper glacier's lag-1 coherence sits at
 Put beside the displacement anomaly, this is the test the refreeze
 hypothesis fails. The table is the per-pixel median peak to peak and
 trough hour of the ice above 2600 m, and the air at 2600 m
-(`baker_melt.py --campaigns`):
+(`baker_melt.py --campaigns`); the hour is the circular median of the
+per-pixel trough hour, left blank where the per-pixel hours have no common
+phase (mean resultant below 0.3):
 
 | campaign | hours | anomaly RMS (mm) | swing above 2600 m (dB) | darkest (local) | air at 2600 m (°C) | hours below 0 °C | positive degree-hours |
 |---|---|---|---|---|---|---|---|
-| `20170913` | 15 | 1.3 | 1.9 | 15:36 | 2.7 (1.3–5.5) | 0 % | 40 |
-| `20190719` | 46 | 3.7 | 5.0 | 19:12 | 3.9 (−1.3–8.7) | 23 % | 178 |
-| `20170713_full` | 24 | 4.1 | 4.6 | 17:18 | 2.4 (0.5–8.0) | 0 % | 58 |
-| `20170827` | 45 | 7.9 | 1.3 | 17:48 | 13.8 (12.1–17.0) | 0 % | 623 |
-| `20170803_full` | 25 | 10.9 | 2.0 | 17:30 | 13.3 (11.6–16.6) | 0 % | 331 |
+| `20170913` | 15 | 1.3 | 1.9 | — | 2.7 (1.3–5.5) | 0 % | 40 |
+| `20190719` | 46 | 3.7 | 5.0 | 19:18 | 3.9 (−1.3–8.7) | 23 % | 178 |
+| `20170713_full` | 24 | 4.1 | 4.5 | 17:18 | 2.4 (0.5–8.0) | 0 % | 58 |
+| `20170827` | 45 | 7.9 | 1.3 | 19:36 | 13.8 (12.1–17.0) | 0 % | 623 |
+| `20170803_full` | 25 | 10.9 | 2.0 | 18:30 | 13.3 (11.6–16.6) | 0 % | 331 |
 | `20180808` | 42 | 12.3 | 1.0 | — | 14.0 (11.0–16.8) | 0 % | 588 |
 
 The anomaly is largest where the surface never freezes, never drains
 and hardly changes brightness (12.3 mm with a 1.0 dB "cycle" at the noise
 floor), and smallest where the wet–dry cycle is strongest (3.7–4.1 mm
-with 4.6–5.0 dB); across the six it tracks the warmth — 1.3–4.1 mm at
+with 4.5–5.0 dB); across the six it tracks the warmth — 1.3–4.1 mm at
 40–178 positive degree-hours, 7.9–12.3 mm at 331–623 — and not the
 refreeze, which only two of the six had at all. Epoch by epoch the
 upper glacier's brightness and the waveform do not even agree on a sign

@@ -61,8 +61,9 @@ from gpri_tools.geocode import BAKERBEND1_HEADING, RadarGeometry          # noqa
 from gpri_tools.glaciers import glacier_mask, load_outlines, stable_ground_mask  # noqa: E402
 from gpri_tools.heading import scene_heading, target_heights              # noqa: E402
 from gpri_tools.melt import (BinAccumulator, air_temperature_at, bin_by_hour,  # noqa: E402
-                             bin_mean, diurnal_harmonic, diurnal_swing,
-                             pixel_correlation, transfer_curve, wet_fraction)
+                             bin_mean, clock_composite, clock_median,
+                             diurnal_harmonic, diurnal_swing, pixel_correlation,
+                             transfer_curve, wet_fraction)
 
 HEIGHT_STEP = 200.0                                                   # m
 REFERENCE_HEIGHT = 2600.0                                             # m: the upper glacier
@@ -240,37 +241,6 @@ def upper(p):
     return p["hourly_ice_%.0f_inf" % p["bands"][-1]]
 
 
-def clock_composite(series, hours_local, period=24.0):
-    """Mean by clock hour of an hourly series: a two-day record on one clock."""
-    slot = np.mod(np.floor(hours_local), period).astype(int)
-    comp = np.full(int(period), np.nan)
-    for s in range(int(period)):
-        m = (slot == s) & np.isfinite(series)
-        if m.any():
-            comp[s] = series[m].mean()
-    return comp
-
-
-def clock_median(hours, period=24.0, min_r=0.3):
-    """Middle of a set of clock hours, as the phase of their mean unit vector.
-
-    An hour wraps, so a plain median of one is wrong wherever the pixels
-    straddle midnight and meaningless where the fitted phase is noise and they
-    are spread round the whole circle.  The mean resultant length says which of
-    the two it is; below ``min_r`` the pixels agree on no hour and the answer
-    is NaN rather than a number that only looks definite.
-    """
-    h = np.asarray(hours, float)
-    h = h[np.isfinite(h)]
-    if h.size == 0:
-        return np.nan
-    z = np.exp(2j * np.pi * h / period).mean()
-    if np.abs(z) < min_r:
-        return np.nan
-    out = np.mod(np.angle(z) * period / (2 * np.pi), period)
-    return float(out if out < period else 0.0)
-
-
 def curve_slope(curve):
     """dB per °C over the transfer curve's medians, weighted by their counts."""
     mid, med, cnt = curve[0], curve[1], curve[4]
@@ -393,7 +363,7 @@ def campaigns(args):
             key = "db_ice_%.0f_inf" % p["bands"][-1]
             if key in q.files and q[key].size == q["template"].size:
                 y = q[key] - q["db_rock_fit"]
-                ok = np.isfinite(y)
+                ok = np.isfinite(y) & np.isfinite(q["template"])
                 row["r_db"] = np.corrcoef(y[ok], q["template"][ok])[0, 1]
         rows.append(row)
     if not rows:
