@@ -54,8 +54,10 @@ flat in range, not sloped, which is why the range test misses it.*
 
 A geometry note for anyone reading vertical motion off a LOS series: at a
 beam elevation of 10°, LOS sensitivity to vertical motion is `sin(10°) =
-0.17` against `cos(10°) = 0.98` for horizontal; over this scene the vertical
-sensitivity grows from 0.05 at the snout to 0.20 at 3000 m. One line of sight
+0.17` against `cos(10°) = 0.98` for horizontal, and 0.17 is what
+`vertical_sensitivity` returns for this scene; the sine of the beam
+elevation to a target at its own height, which the function does not
+compute, runs from 0.05 at the snout to 0.20 at 3000 m. One line of sight
 cannot separate the two components. `vertical_sensitivity` and
 `decompose_los` make that explicit.
 
@@ -678,18 +680,20 @@ gain, which drifts 0.9–1.9 dB over a record). On `20170803_full` the ice
 above 2600 m swings 3.5 dB peak to peak — 1.7 dB above its mean at 08:00
 local and 1.8 dB below it at 13:45, falling from 08:00 to that trough;
 2200–2600 m swings 1.8 dB, the ice below 2200 m 1.0 dB, held-out bedrock
-0.34 dB. `20170827` keeps the same clock
-for two days — brightest at 06:00–07:00 local on both mornings, darkest at
-13:00–15:00, 2.6 dB peak to peak above 2600 m — while its anomaly peaks
-between 07:00 and 12:00; `20180808` swings 1.3 dB there, brightest at
-05:00–06:00 local on both mornings and darkest at 13:00–14:00, with a
-second, smaller maximum at 19:00 on the first day, the hour of the
-anomaly's peak. Per pixel, at fixed range and height, the share is
-independent of a pixel's own brightness cycle (+0.02 per dB/10 mm,
+0.34 dB. `20170827` runs two days — darkest at 21:00–22:30 local on both
+nights (−0.75 and −0.82 on 27–28 August, −0.81 on 28–29), with a shallower
+afternoon minimum of −0.56 to −0.69 at 13:00–15:00, brightest at 08:00–09:00
+local on the first full morning (+0.24) and 06:00–07:00 on the second
+(+1.58), 2.6 dB peak to peak above 2600 m — while its anomaly peaks between
+07:00 and 12:00; `20180808` swings 1.3 dB there, its hourly means peaking at
+18:00 local on the first evening (+0.44), 17:00 on the second (+0.49) and
+05:00–06:00 on the final morning (+0.58, the record's brightest hour), and
+darkest at 13:00–14:00 (−0.37). Per pixel, at fixed range and height, the
+share is independent of a pixel's own brightness cycle (+0.02 per dB/10 mm,
 r = +0.01), although that cycle varies ten times more from pixel to pixel
-than its noise. In time, the phase trough (04:30 local) leads the
-brightest hour (07:15) by under three hours and the afternoon recovery
-follows the darkening by two or three.
+than its noise. In time, the phase trough (04:30 local) leads the brightest
+hour by about three and a half hours and the afternoon recovery follows the
+darkening by two or three.
 
 **The air at 2600 m.** Carried up from MF Nooksack at −6.5 °C/km, the air
 at 2600 m never fell below 11 °C in any of the three August records;
@@ -794,12 +798,12 @@ in m/yr; the lower panel is the glacier-mean backscatter of the line
 above. Both sit on the UTC clock with the local night shaded. The window
 sets the noise, about ±20 m/yr on the two large catchments and more on
 the small ones, and the first hour of each record is a one-sided
-difference. Two things to note on it: on `20170713_full` the three
-catchments climb from +27 to +58 m/yr between 21:38 and 22:03 UTC, the
-window that spans the 10 dB gain step (between the 21:43 and 21:53
-epochs), and fall back over the next hour; and on `20170913` Coleman and
-Roosevelt run at 30–60 m/yr toward the radar all day while Mazama and
-Thunder hover about zero.
+difference. Two things to note on it: on `20170713_full` all three
+catchments peak at 22:03 UTC — Coleman +58, Roosevelt +56, Thunder +36 m/yr
+— from +27, +40 and +4 at 21:33, an interval that spans the 10 dB gain step
+(between the 21:43 and 21:53 epochs), and fall back over the next hour; and
+on `20170913` Coleman and Roosevelt run at 30–60 m/yr toward the radar all
+day while Mazama and Thunder hover about zero.
 
 ![catchment-mean LOS velocity and the glacier's mean backscatter, 20190719](figures/27_catchments_20190719.png)
 
