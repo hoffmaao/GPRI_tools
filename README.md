@@ -107,12 +107,15 @@ above was built for, and it is the only example in this repository.
 - [`docs/campaigns.md`](docs/campaigns.md) — the campaign inventory, the
   measured scan headings and the per-campaign processing notes.
 - [`docs/atmosphere.md`](docs/atmosphere.md) — the correction ladder in full.
+- [`docs/pathdelay.md`](docs/pathdelay.md) — the path delay estimated from
+  double-differenced pairs instead of from bedrock: what it removes, what it
+  provably cannot, and the numbers on six campaigns.
 
 ## Install
 
 ```bash
 pip install -e '.[all]'      # numpy, scipy + pyproj, rasterio, matplotlib
-pytest                       # 375 tests
+pytest                       # 418 tests
 ```
 
 Only `numpy` and `scipy` are required. `pyproj` and `rasterio` are needed for
@@ -221,6 +224,9 @@ python examples/baker_melt.py --campaigns $CAMPAIGNS
 # per named catchment over that same glacier-mean dB
 for s in $CAMPAIGNS; do python examples/baker_brightness.py --scene $s; done
 for s in $CAMPAIGNS; do python examples/baker_catchments.py --scene $s; done
+# the atmosphere separated in time instead of space: one path delay per
+# acquisition from double-differenced pairs, scored on held-out bedrock
+for s in $CAMPAIGNS; do python examples/baker_pathdelay.py --scene $s; done
 ```
 
 `bin/run_scene.sh <scene> [upper|lower|both]` runs the deformation chain for

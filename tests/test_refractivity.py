@@ -240,3 +240,37 @@ def test_stratified_delay_is_vectorised_over_a_scene():
     assert d.shape == (3, 7)
     assert np.all(np.diff(d, axis=1) > 0)          # farther is always slower
     assert np.isfinite(d).all()
+
+
+# ---------------------------------------------------- humidity for comparison
+def test_specific_humidity_is_the_mixing_ratio_of_moist_air():
+    from gpri_tools.refractivity import EPSILON, specific_humidity, vapour_pressure
+    q = specific_humidity(5.0, 0.70, 880.0)
+    e = vapour_pressure(5.0, 0.70)
+    assert q == pytest.approx(1e3 * EPSILON * e / (880.0 - (1 - EPSILON) * e))
+    assert 3.0 < q < 6.0                       # g/kg, cool and damp
+
+
+def test_specific_humidity_ignores_temperature_at_fixed_vapour_pressure():
+    """The point of using q: warming the air alone does not move it."""
+    from gpri_tools.refractivity import (saturation_vapour_pressure,
+                                         specific_humidity)
+    warm = 15.0
+    rh_cold = 0.90
+    e = rh_cold * saturation_vapour_pressure(5.0)
+    rh_warm = e / saturation_vapour_pressure(warm)
+    assert specific_humidity(5.0, rh_cold, 880.0) == pytest.approx(
+        specific_humidity(warm, rh_warm, 880.0), rel=1e-9)
+
+
+def test_specific_humidity_accepts_percentages_like_the_rest():
+    from gpri_tools.refractivity import specific_humidity
+    assert specific_humidity(5.0, 70.0, 880.0) == pytest.approx(
+        specific_humidity(5.0, 0.70, 880.0))
+
+
+def test_humidity_gradient_is_per_kilometre_and_signed():
+    from gpri_tools.refractivity import humidity_gradient
+    assert humidity_gradient(6.0, 3.0, 1500.0, 2500.0) == pytest.approx(-3.0)
+    assert humidity_gradient(3.0, 6.0, 1500.0, 2500.0) == pytest.approx(3.0)
+    assert np.isnan(humidity_gradient(3.0, 6.0, 1500.0, 1500.0))
