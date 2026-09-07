@@ -7,8 +7,8 @@ from `GPRI_SURVEY_ROOTS` in `site.env` — see `site.env.example`; nothing
 machine-specific lives in this repository).
 
 The question this answers: **which campaign should the diurnal analysis use?**
-The target signal is sub-daily velocity and uplift variation driven by the
-subglacial drainage system, so what matters is how many diurnal cycles a
+The target signal is sub-daily variation in line-of-sight displacement
+([`baker.md`](baker.md)), so what matters is how many diurnal cycles a
 campaign spans and whether it is processed far enough to use.
 
 ## The campaigns that matter
@@ -68,8 +68,8 @@ worth far more than one cycle for three reasons:
 2. Two cycles let you check whether the diurnal **repeats**. A signal that
    recurs at the same phase on consecutive days is hard to explain as anything
    but a forced response; a one-off is not.
-3. The phase (hour of peak) is the diagnostic quantity for drainage-system
-   behaviour, and its uncertainty falls sharply with a second cycle.
+3. The phase (hour of peak) is what the fit reports beside the amplitude,
+   and its uncertainty falls sharply with a second cycle.
 
 It was left as **582 GB of raw data** with `SLCu_tab`/`SLCl_tab`/`itab_mr`
 already written, pointing at an SLC directory that does not exist — set up

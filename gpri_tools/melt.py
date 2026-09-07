@@ -9,8 +9,8 @@ refrozen overnight scatters from a volume again and brightens by decibels.
 That is what QuikSCAT's diurnal backscatter difference maps over the ice
 sheets (Nghiem et al. 2001), what Baffelli et al. (2019) saw under a Ku-band
 terrestrial radar on an Alpine glacier, and what the ``db_*`` band series in
-``examples/baker_pixels.py`` show on Mount Baker: dark through the warm
-afternoon, brightest around dawn.
+``examples/baker_pixels.py`` measure on Mount Baker; the clock each campaign
+came out with is in ``docs/baker.md``.
 
 This module turns that into per-pixel numbers a melt model can be checked
 against.  The radar's clock is minutes and its record a day or two, so the
