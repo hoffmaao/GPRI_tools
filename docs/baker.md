@@ -1013,11 +1013,12 @@ give:
   where independent noise would spread them uniformly over 24 h. On rock,
   0.08 % survive the same test.
 
-Averaging the two channels raises the ice median SNR from 1.64 to 1.88 — not
-the √2 = 2.18 of independent noise, because the rest is common-mode. That
-is also the limit of the replicate: the antennas share the air, so agreement
-between them tests phase noise, not atmosphere. The held-out-bedrock
-false-alarm rate remains the atmosphere control.
+Averaging the two channels raises the ice median SNR from the upper
+antenna's 1.64 to 1.88 — not the √2 × 1.64 = 2.32 of independent noise,
+because the rest is common-mode. That is also the limit of the replicate:
+the antennas share the air, so agreement between them tests phase noise, not
+atmosphere. The held-out-bedrock false-alarm rate remains the atmosphere
+control.
 
 ## Atmospheric correction, validated on held-out bedrock
 
