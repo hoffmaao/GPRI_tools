@@ -879,17 +879,15 @@ the population anomaly ranges from −0.48 to +0.51 across the campaigns.
 Two further numbers from the same caches. The 36–38 held-out bedrock pixels
 the outline leaves above 2600 m (16 on `20170713_full`), between 7.4 and 9.0
 km, carry the waveform after the screens — 1.3 on `20180808`, 1.7 on
-`20190719`, 2.7 on `20170913`, 0.4–0.5 in the three 2017 summer records —
-with a fitted brightness swing of 0.4–0.8 dB, the rock floor. The held-out
-bedrock above 2600 m carries 1.7 on `20190719`, 2.7 on `20170913`, 1.3 on
-`20180808` and 0.4–0.5 in the three 2017 summer records, against 1.9, 2.8,
-1.7 and 1.2–1.6 for the ice above 2600 m in the same campaigns. Between 5
-and 7 km, where 2,000–3,300 held-out bedrock pixels sit at the same range as
-the ice, the bedrock carries −0.08 to +0.01 of the waveform after the
-screens and the ice at 6–7 km carries 0.77–1.35 of its campaign's waveform
-in all six records — 1.0–5.5 mm in the cool campaigns and 7.4–10.8 mm in the
-warm ones, on ice whose fitted brightness swing is 1.0–1.1 dB in August and
-1.7–4.0 dB in the cool campaigns.
+`20190719`, 2.7 on `20170913`, 0.4–0.5 in the three 2017 summer records,
+against 1.7, 1.9, 2.8 and 1.2–1.6 for the ice above 2600 m — with a fitted
+brightness swing of 0.4–0.8 dB, the rock floor. Between 5 and 7 km, where
+2,000–3,300 held-out bedrock pixels sit at the same range as the ice, the
+bedrock carries −0.08 to +0.01 of the waveform after the screens and the ice
+at 6–7 km carries 0.77–1.35 of its campaign's waveform in all six records —
+1.0–5.5 mm in the cool campaigns and 7.4–10.8 mm in the warm ones, on ice
+whose fitted brightness swing is 1.0–1.1 dB in August and 1.7–4.0 dB in the
+cool campaigns.
 
 ## Movies of the deformation field
 

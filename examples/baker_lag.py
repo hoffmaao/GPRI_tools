@@ -3,27 +3,16 @@
 
     python examples/baker_lag.py --scenes 20170803_full 20180808 20190719
 
-Two candidate explanations of an ice anomaly that follows the air — a
-stratified atmosphere (`baker_stratification.py`) and a melt-driven response
-— differ in a way that does not depend on any amplitude:
+A response with no memory is in phase with its forcing; a response with a
+delay is not.  So the lag is the measurement.  This cross-correlates each
+campaign's population series against the weather at lags from -12 to +12 hours
+and reports where the correlation peaks.
 
-* **Refractivity is instantaneous.**  The delay a stratified atmosphere adds
-  depends on the state of the air *now*.  Its correlation with temperature
-  peaks at **zero lag**.
-* **Melt is not.**  Water generated at the surface has to reach the bed before
-  it can change basal water pressure and let the glacier slide, and that
-  takes hours.  A melt-driven speed-up must peak *after* the forcing.
-
-So the lag is the measurement.  This cross-correlates each campaign's
-population series against the weather at lags from -12 to +12 hours and reports
-where the correlation peaks.
-
-One subtlety decides what to correlate.  Sliding is a **velocity**, but the
-population series is a **displacement**: if velocity follows melt, displacement
-follows the integral of melt and lags it by a further quarter cycle — six hours
-for a diurnal signal — for reasons of calculus and not glaciology.  Both are
-reported.  Held-out bedrock, which does not move, runs through the identical
-machinery as the null.
+One subtlety decides what to correlate.  The population series is a
+**displacement**, and the integral of a harmonic lags it by a quarter cycle —
+six hours for a diurnal signal — for reasons of calculus.  Both the
+displacement and its time derivative are reported.  Held-out bedrock, which
+does not move, runs through the identical machinery as the null.
 
 The lag is measured as a **phase difference between 24 h harmonics**, not as
 the peak of a cross-correlation.  On a signal that is itself diurnal the two
