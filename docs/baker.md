@@ -675,10 +675,10 @@ all but the last hundred metres of air.
 as well as its phase (`SlcPairStack.backscatter`; for this panel the
 fit-half bedrock's median is taken out of every frame as the receiver's
 gain, which drifts 0.9–1.9 dB over a record). On `20170803_full` the ice
-above 2600 m swings 3.5 dB peak to peak — 1.1–1.9 dB below its mean
-through the afternoons, 1.9 dB above it at 07:00 local, falling from 08:00
-to a trough at 13:00–14:00; 2200–2600 m swings 1.8 dB, the ice below
-2200 m 1.0 dB, held-out bedrock 0.34 dB. `20170827` keeps the same clock
+above 2600 m swings 3.5 dB peak to peak — 1.7 dB above its mean at 08:00
+local and 1.8 dB below it at 13:45, falling from 08:00 to that trough;
+2200–2600 m swings 1.8 dB, the ice below 2200 m 1.0 dB, held-out bedrock
+0.34 dB. `20170827` keeps the same clock
 for two days — brightest at 06:00–07:00 local on both mornings, darkest at
 13:00–15:00, 2.6 dB peak to peak above 2600 m — while its anomaly peaks
 between 07:00 and 12:00; `20180808` swings 1.3 dB there, brightest at
