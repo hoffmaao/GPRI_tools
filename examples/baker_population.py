@@ -62,15 +62,17 @@ from gpri_tools.diurnal import (DIURNAL, MIN_CYCLES, hour_composite,     # noqa:
 from gpri_tools.timeseries import los_displacement                       # noqa: E402
 
 
-def population_path(scene: Path, antenna: str, dec: int, height_screen=False) -> Path:
+def population_path(scene: Path, antenna: str, dec: int, height_screen=False,
+                    path_delay=False) -> Path:
     """Where the population series of one scene/antenna are cached.
 
-    A run with the height covariate writes beside the standard one rather than
-    over it, so the two can be compared.
+    A run with the height covariate, or with the temporal path-delay stage,
+    writes beside the standard one rather than over it, so the two can be
+    compared.
     """
     import os
     root = Path(os.environ.get("GPRI_WORK_ROOT", "work"))
-    tag = "_hz" if height_screen else ""
+    tag = ("_hz" if height_screen else "") + ("_pd" if path_delay else "")
     return root / scene.name / f"population_{antenna[0].lower()}_dec{dec}{tag}.npz"
 
 
@@ -118,6 +120,14 @@ def main():
                     help="fit the epoch screen with target height (from "
                          "GPRI_DEM) as a covariate beside slant range, and "
                          "write the result beside the standard one")
+    ap.add_argument("--path-delay", action="store_true",
+                    help="also take out the temporal path delay "
+                         "(gpri_tools.pathdelay) after the ladder; the cache "
+                         "and figure are written beside the standard ones")
+    ap.add_argument("--protect-period", type=float, default=1.0,
+                    help="period (days) the path delay must leave alone")
+    ap.add_argument("--max-response", type=float, default=0.01,
+                    help="how much of --protect-period the delay may remove")
     ap.add_argument("--outdir", type=Path, default=Path("docs/figures"))
     args = ap.parse_args()
     scene = Path(SCENES.get(args.scene, args.scene))
@@ -184,6 +194,22 @@ def main():
                                    weights=mean_cc, wrapped=False)
         d[k] -= scr
     print(f"corrections in {time.time() - t0:.0f} s")
+
+    if args.path_delay:
+        from gpri_tools.pathdelay import displacement_delay_field
+        t0 = time.time()
+        # held-out bedrock is what scores this script, so it must not feed
+        # the delay it is scored against
+        trusted = ice | fit_m
+        field, plam = displacement_delay_field(
+            d, np.asarray(net.pairs[:n], int), np.asarray(net.times, float),
+            trusted, weights=mean_cc, sigma=tuple(args.sigma),
+            protect_period=args.protect_period, max_response=args.max_response)
+        d -= field.astype(d.dtype)
+        print(f"path delay (lambda {plam:.4g}) removed in {time.time() - t0:.0f} s; "
+              f"field sd {1000 * np.nanstd(field):.3f} mm over "
+              f"{trusted.sum():,} trusted px")
+        del field
 
     t = np.asarray(times, float)                          # days
     hours = t * 24
@@ -354,14 +380,16 @@ def main():
             ax.axvline(u - origin, color="0.6", lw=0.6, ls=":")
     plt.tight_layout()
     args.outdir.mkdir(parents=True, exist_ok=True)
-    out = args.outdir / f"19_population_{day}{'_hz' if args.height_screen else ''}.png"
+    out = (args.outdir / f"19_population_{day}"
+           f"{'_hz' if args.height_screen else ''}"
+           f"{'_pd' if args.path_delay else ''}.png")
     plt.savefig(out, dpi=140)
     plt.close()
     print(f"\nwrote {out}")
 
     # the population series themselves, for baker_seasons.py to overlay
     npz = population_path(scene, args.antenna, args.decimate,
-                          args.height_screen)
+                          args.height_screen, args.path_delay)
     # rates in m/yr; ``detrend`` says which line the anomalies are from
     np.savez(npz, hours=hours, origin=origin,
              epoch0=np.datetime64(net.epochs[0]).astype("datetime64[s]"),

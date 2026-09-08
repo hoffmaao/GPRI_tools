@@ -46,6 +46,7 @@ from gpri_tools.diurnal import m_per_yr                                  # noqa:
 from gpri_tools.geocode import BAKERBEND1_HEADING, RadarGeometry          # noqa: E402
 from gpri_tools.glaciers import glacier_mask, load_outlines, stable_ground_mask  # noqa: E402
 from gpri_tools.heading import scene_heading                              # noqa: E402
+from gpri_tools.pathdelay import displacement_delay_field                 # noqa: E402
 from gpri_tools.timeseries import los_displacement                        # noqa: E402
 
 
@@ -57,9 +58,16 @@ CATCHMENTS_CACHE_VERSION = 2
 MASK_ARGS = ("ice_coherence", "stable_coherence", "min_pixels", "sigma")
 
 
-def catchments_path(scene: Path, antenna: str, dec: int) -> Path:
+def catchments_path(scene: Path, antenna: str, dec: int, path_delay=False) -> Path:
+    """Where the catchment means are cached.
+
+    A run with the temporal path-delay stage writes beside the standard one
+    rather than over it, so the two can be compared — the same rule
+    ``baker_population.py`` uses for its height screen.
+    """
     root = Path(os.environ.get("GPRI_WORK_ROOT", "work"))
-    return root / scene.name / f"catchments_{antenna[0].lower()}_dec{dec}.npz"
+    tag = "_pd" if path_delay else ""
+    return root / scene.name / f"catchments_{antenna[0].lower()}_dec{dec}{tag}.npz"
 
 
 def load_catchments(scene: Path, args):
@@ -69,7 +77,7 @@ def load_catchments(scene: Path, args):
     the code no longer builds, and one built under different mask flags is an
     answer to a different question; either way it has to be rebuilt.
     """
-    cache = catchments_path(scene, args.antenna, args.decimate)
+    cache = catchments_path(scene, args.antenna, args.decimate, args.path_delay)
     if not cache.exists():
         return None, "no cache"
     c = dict(np.load(cache, allow_pickle=False))
@@ -131,6 +139,19 @@ def compute(scene, args):
         d[k] -= scr
     print(f"drift + turbulence corrections in {time.time() - t0:.0f} s")
 
+    if args.path_delay:
+        t0 = time.time()
+        trusted = coherent | stable
+        field, lam = displacement_delay_field(
+            d, np.asarray(net.pairs[:n], int), np.asarray(net.times, float),
+            trusted, weights=mean_cc, sigma=tuple(args.sigma),
+            protect_period=args.protect_period, max_response=args.max_response)
+        d -= field.astype(d.dtype)
+        print(f"path delay (lambda {lam:.4g}) removed in {time.time() - t0:.0f} s; "
+              f"field sd {1000 * np.nanstd(field):.3f} mm over "
+              f"{trusted.sum():,} trusted px")
+        del field
+
     disp = np.stack([np.nanmean(d[:, m], axis=1) for m in masks], axis=1) * 1000  # mm
     n_px = np.array([m.sum() for m in masks])
     return {"disp": disp.astype(np.float32), "names": np.array(names), "ids": np.array(ids),
@@ -139,6 +160,7 @@ def compute(scene, args):
             "cache_version": CATCHMENTS_CACHE_VERSION, "antenna": args.antenna,
             "decimate": args.decimate, "window": args.window,
             "utc_offset": args.utc_offset,
+            "path_delay": np.asarray(bool(args.path_delay)),
             **{k: np.asarray(getattr(args, k), float) for k in MASK_ARGS}}
 
 
@@ -169,7 +191,8 @@ def figure(c, melt, name, args):
     ax_b.xaxis.set_major_locator(loc)
     ax_b.xaxis.set_major_formatter(mdates.ConciseDateFormatter(loc))
     fig.tight_layout()
-    out = args.outdir / f"27_catchments_{name}.png"
+    tag = "_pd" if args.path_delay else ""
+    out = args.outdir / f"27_catchments_{name}{tag}.png"
     fig.savefig(out)
     plt.close(fig)
     print(f"wrote {out}")
@@ -190,6 +213,14 @@ def main():
                     help="turbulence screen kernel (azimuth, range) px")
     ap.add_argument("--window", type=float, default=2.0,
                     help="hours the velocity is differenced over")
+    ap.add_argument("--path-delay", action="store_true",
+                    help="also take out the temporal path delay "
+                         "(gpri_tools.pathdelay) after the ladder; caches and "
+                         "figure are written beside the standard ones")
+    ap.add_argument("--protect-period", type=float, default=1.0,
+                    help="period (days) the path delay must leave alone")
+    ap.add_argument("--max-response", type=float, default=0.01,
+                    help="how much of --protect-period the delay may remove")
     ap.add_argument("--utc-offset", type=float, default=-7.0,
                     help="local clock minus UTC, for the night shading")
     ap.add_argument("--recompute", action="store_true")
@@ -198,7 +229,7 @@ def main():
 
     name = args.scene
     scene = Path(SCENES.get(name, name))
-    cache = catchments_path(scene, args.antenna, args.decimate)
+    cache = catchments_path(scene, args.antenna, args.decimate, args.path_delay)
     c, why = (None, "") if args.recompute else load_catchments(scene, args)
     if c is not None:
         print(f"loaded {cache}")

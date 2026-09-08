@@ -139,6 +139,9 @@ def main():
                     help="hours over which the velocity anomaly is differenced")
     ap.add_argument("--station", default="1011",
                     help="SNOTEL id for the forcing (default 1011, MF Nooksack)")
+    ap.add_argument("--path-delay", action="store_true",
+                    help="read the population series that baker_population.py "
+                         "--path-delay wrote, rather than the standard ones")
     args = ap.parse_args()
     work = Path(os.environ.get("GPRI_WORK_ROOT", "work"))
     lags = np.arange(-args.max_lag, args.max_lag + 1e-9, args.lag_step)
@@ -148,7 +151,8 @@ def main():
           f"a positive lag means the ice responds AFTER the forcing\n")
     for name in names:
         scene = Path(SCENES.get(name, name))
-        pop = population_path(scene, args.antenna, args.decimate)
+        pop = population_path(scene, args.antenna, args.decimate,
+                              path_delay=args.path_delay)
         metf = work / "met" / f"met_{name}.npz"
         if not pop.exists() or not metf.exists():
             continue

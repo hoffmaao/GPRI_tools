@@ -77,8 +77,9 @@ from dataclasses import dataclass, field
 import numpy as np
 
 __all__ = [
-    "DoubleDifference", "PathDelay", "discarded_rate", "double_difference",
-    "frequency_response", "invert_path_delay", "lambda_for_response",
+    "DoubleDifference", "PathDelay", "discarded_rate", "displacement_delay_field",
+    "double_difference", "frequency_response", "invert_path_delay",
+    "lambda_for_response",
     "lambda_for_system_response", "pin_affine", "pin_rate", "select_lambda",
     "shared_epoch_triplets", "system_response", "tikhonov",
 ]
@@ -477,6 +478,75 @@ def frequency_response(period, spacing, lam=0.0):
     dt = float(spacing)
     g = 4.0 * np.sin(np.pi * dt / T) ** 2 / dt
     return g ** 2 / (g ** 2 + float(lam))
+
+
+def displacement_delay_field(displacement, pairs, times, mask, weights=None,
+                             sigma=(5.0, 25.0), lam=None, protect_period=1.0,
+                             max_response=0.01, chunk_rows=24, min_support=0.02):
+    """The path delay of a displacement cube, kept to where it is trusted.
+
+    The pipeline this is for: run the spatial ladder, then hand its output
+    here to take out what is left that is fast and spatially coherent.  The
+    cube is re-differenced into pairs, inverted per pixel, and each epoch's
+    delay is passed through :func:`gpri_tools.aps.turbulence_screen` on
+    ``mask`` — so the answer is the part of the per-pixel field that
+    neighbouring trusted pixels agree on, not each pixel's own noise.  The
+    result is pinned with :func:`pin_rate`, so subtracting it cannot move a
+    rate.
+
+    Parameters
+    ----------
+    displacement : (n_epochs, ...) array
+        LOS displacement per epoch, in any consistent unit.
+    mask : bool array
+        Where the delay may be fitted — the coherent pixels.  Smoothing the
+        raw per-pixel field over the whole frame instead drags in delays
+        fitted on incoherent ground, which is worse than doing nothing.
+    weights : array, optional
+        Per-pixel confidence for the fit; mean coherence is the intended one.
+    protect_period : float, optional
+        Passed to :func:`lambda_for_system_response`; ``1.0`` keeps the
+        correction off a diurnal signal.
+
+    Returns
+    -------
+    field : (n_epochs, ...) array
+        Subtract it from ``displacement``.
+    lam : float
+    """
+    from .aps import turbulence_screen                # local: aps imports numpy only
+
+    d = np.asarray(displacement, float)
+    pr = np.asarray(pairs, int).reshape(-1, 2)
+    t = np.asarray(times, float)
+    sysd = double_difference(pr, t)
+
+    obs = (d[pr[:, 1]] - d[pr[:, 0]])
+    if lam is None:
+        series = np.array([np.nanmean(x[mask]) for x in obs])
+        lam, _ = select_lambda(sysd.A, sysd.apply(series), method="gcv")
+    if protect_period is not None:
+        lam = max(float(lam), float(lambda_for_system_response(
+            sysd.A, t, protect_period, max_response)))
+
+    A = sysd.A
+    M = np.linalg.solve(A.T @ A + lam * np.eye(A.shape[1]), A.T)
+    cube = np.empty((A.shape[1],) + obs.shape[1:], float)
+    rows = obs.shape[1] if obs.ndim > 1 else 1
+    for s in range(0, rows, int(chunk_rows)):
+        e = min(s + int(chunk_rows), rows)
+        b = sysd.apply(obs[:, s:e])
+        x = np.tensordot(M, b.reshape(b.shape[0], -1), axes=(1, 0))
+        cube[:, s:e] = pin_rate(x.reshape((A.shape[1],) + b.shape[1:]), t, pr)
+    del obs
+
+    field = np.empty_like(cube)
+    for k in range(cube.shape[0]):
+        scr, _ = turbulence_screen(cube[k], mask, sigma=tuple(sigma),
+                                   weights=weights, wrapped=False,
+                                   min_support=min_support)
+        field[k] = scr
+    return pin_rate(field, t, pr), float(lam)
 
 
 def lambda_for_response(period, spacing, max_response=0.01):

@@ -6,7 +6,8 @@ import pytest
 
 from gpri_tools.network import Network
 from gpri_tools.pathdelay import (DoubleDifference, PathDelay, discarded_rate,
-                                  double_difference, frequency_response,
+                                  displacement_delay_field, double_difference,
+                                  frequency_response,
                                   invert_path_delay, lambda_for_response,
                                   lambda_for_system_response, pin_affine,
                                   pin_rate, select_lambda, shared_epoch_triplets,
@@ -546,3 +547,53 @@ def test_no_regularisation_is_needed_when_the_target_is_already_met():
     net = _chain(n_epochs=30, lags=(1,))
     A = double_difference(net.pairs, net.times).A
     assert lambda_for_system_response(A, net.times, 1.0, 1.0) == 0.0
+
+
+# ------------------------------------------------- the displacement-cube path
+def _cube(net, rng, shape=(12, 9)):
+    """A displacement cube: steady motion + a delay that is smooth in space."""
+    t = net.times
+    az = np.linspace(-1, 1, shape[0])[:, None]
+    rg = np.linspace(-1, 1, shape[1])[None, :]
+    smooth = np.exp(-(az ** 2 + rg ** 2))
+    delay = np.array([a * smooth for a in rng.normal(0, 1.0, net.n_epochs)])
+    motion = 20.0 * t[:, None, None] * np.ones((1,) + shape)
+    return motion + delay, delay
+
+
+def test_displacement_delay_field_finds_the_coherent_part():
+    rng = np.random.default_rng(83)
+    net = _chain(n_epochs=60, lags=(1, 2))
+    d, delay = _cube(net, rng)
+    mask = np.ones(d.shape[1:], bool)
+
+    field, lam = displacement_delay_field(d, net.pairs, net.times, mask,
+                                          sigma=(1.0, 1.0), protect_period=None)
+    assert field.shape == d.shape
+    assert lam >= 0
+    # what it removes correlates with the delay that was put in
+    a = pin_rate(delay, net.times, net.pairs).ravel()
+    b = field.ravel()
+    assert np.corrcoef(a, b)[0, 1] > 0.5
+
+
+def test_displacement_delay_field_cannot_move_a_rate():
+    rng = np.random.default_rng(89)
+    net = _chain(n_epochs=40, lags=(1, 2))
+    d, _ = _cube(net, rng)
+    mask = np.ones(d.shape[1:], bool)
+    field, _ = displacement_delay_field(d, net.pairs, net.times, mask,
+                                        sigma=(1.0, 1.0), protect_period=None)
+    assert np.allclose(discarded_rate(field, net.times, net.pairs), 0.0, atol=1e-9)
+
+
+def test_displacement_delay_field_honours_the_protected_period():
+    rng = np.random.default_rng(97)
+    net = _chain(n_epochs=400, lags=(1, 2))
+    d, _ = _cube(net, rng)
+    mask = np.ones(d.shape[1:], bool)
+    free, lam_free = displacement_delay_field(d, net.pairs, net.times, mask,
+                                              sigma=(1.0, 1.0), protect_period=None)
+    kept, lam_kept = displacement_delay_field(d, net.pairs, net.times, mask,
+                                              sigma=(1.0, 1.0), protect_period=1.0)
+    assert lam_kept >= lam_free
