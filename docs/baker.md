@@ -3,68 +3,63 @@
 The worked example for [GPRI_tools](../README.md): eight GPRI-II campaigns on
 the north side of Mount Baker, Washington, recorded from the BakerBend1
 tripod position between 2016 and 2019 and processed end to end with this
-package. Everything below is a result, not a feature — what the tools were
-built to answer, and what the answer turned out to be.
+package. This document records what was run, on which data, and what the
+numbers and figures came out as. What they mean is left to the work that
+follows the analysis.
 
-The experiment's question is **sub-daily velocity and uplift variation driven
-by the subglacial drainage system**: a diurnal signal, if it exists, in
-line-of-sight displacement over Coleman and Roosevelt glaciers. The campaign
-inventory, scan headings and per-campaign processing notes are in
+The campaigns were run to look for **sub-daily variation in line-of-sight
+displacement** over Coleman and Roosevelt glaciers. The campaign inventory,
+scan headings and per-campaign processing notes are in
 [`campaigns.md`](campaigns.md); the atmospheric ladder that every number here
 rests on is in [`atmosphere.md`](atmosphere.md).
 
 ## Diurnal signals — the point of the experiment
 
-The BakerBend1 campaigns were run to catch **sub-daily velocity and uplift
-variation driven by water pressure in the subglacial drainage system**.
 `20170803` is 723 acquisitions on a 2-minute cadence spanning 24.18 hours: one
 complete diurnal cycle, sampled 723 times.
 
-`gpri_tools.diurnal` fits secular rate plus harmonics per pixel and reports amplitude
-and the **hour of peak**, which is the diagnostic quantity — it says how long
-the bed takes to respond to surface melt. It refuses records shorter than one
-cycle outright, because over less than a period the amplitude and the secular
-rate are not separable and a number returned there would be meaningless.
+`gpri_tools.diurnal` fits secular rate plus harmonics per pixel and reports
+amplitude and the **hour of peak**. It refuses records shorter than one cycle
+outright, because over less than a period the amplitude and the secular rate
+are not separable and a number returned there would be meaningless.
 
-The hard part is that **the atmosphere is diurnal too**. Temperature and
-humidity on a mountain flank cycle at exactly the period being looked for, and
-roughly in phase with it — melt and warming peak together. Before correction
-the atmospheric diurnal is one to two orders of magnitude larger than the
-glaciological one. So the module ships three tests, and a claim should survive
-all three:
+The atmosphere cycles at the same period, and before referencing and
+correction the bedrock in this data set carries a diurnal as large as the
+ice's (the unreferenced numbers below). The module ships three tests:
 
-1. **`range_dependence`** — the sharp one. Residual refractivity is *linear in
-   slant range*; ice motion has no reason to correlate with distance from a
-   tripod. A diurnal amplitude that grows with range is atmosphere.
-2. **`atmospheric_coherence`** — regress each pixel against the independently
-   estimated per-epoch refractivity series.
-3. **`stable_ground_null`** — run the same fit on bedrock, which is not moving.
-   That amplitude is the error floor; a diurnal on ice below it is not a
-   detection.
+1. **`range_dependence`** — residual refractivity is *linear in slant range*;
+   the test reports the correlation of diurnal amplitude with range.
+2. **`atmospheric_coherence`** — regresses each pixel against the
+   independently estimated per-epoch refractivity series and reports the
+   variance it explains.
+3. **`stable_ground_null`** — the same fit on bedrock. That amplitude is the
+   error floor; the script's detection criterion is an ice/bedrock amplitude
+   ratio of 2.
 
-And before any of that, **reference the series to stable ground**
-(`gpri_tools.timeseries.reference_to_stable`). Running the full 722-pair day without
-it produced a clean 27.8 mm diurnal on ice — and a 33.0 mm one on bedrock, at
+And before any of that, **the series is referenced to stable ground**
+(`gpri_tools.timeseries.reference_to_stable`). Running the full 722-pair day
+without it gives a 27.8 mm diurnal on ice — and a 33.0 mm one on bedrock, at
 the same phase. An interferogram fixes phase only up to an additive constant,
 so integrating the network accumulates 722 arbitrary offsets into a scene-wide
-drift that is smooth, coherent, and diurnal. The range-dependence test does not
-catch it (r = −0.015) because it is not range-dependent, it is *constant*. Only
-the bedrock null caught it. Hold reference pixels out of that null, or the test
-is circular.
+drift that is smooth, coherent, and diurnal. The range-dependence test does
+not catch it (r = −0.015) because it is not range-dependent, it is *constant*.
+The bedrock null does. Reference pixels are held out of that null, or the
+test is circular.
 
-![The artefact: bedrock and ice share one diurnal curve](figures/08a_diurnal_unreferenced.png)
+![Bedrock and ice share one diurnal curve when unreferenced](figures/08a_diurnal_unreferenced.png)
 
-*What an unreferenced series looks like. Bottom right is the tell: the
-bedrock null (red) traces the same curve as the ice (blue), offset by a
-constant. Bedrock is not moving. Bottom left shows why the range test misses
-it — the artefact is flat in range, not sloped.*
+*An unreferenced series. Bottom right: the bedrock null (red) traces the same
+curve as the ice (blue), offset by a constant. Bottom left: the artefact is
+flat in range, not sloped, which is why the range test misses it.*
 
-And a geometry limit worth stating before anyone reads uplift off a LOS series:
-at a beam elevation of 10°, LOS sensitivity to vertical motion is `sin(10°) =
-0.17` against `cos(10°) = 0.98` for horizontal. **A tripod radar is a
-horizontal-motion instrument, nearly blind to uplift, and one line of sight
-cannot separate the two at all.** `vertical_sensitivity` and `decompose_los`
-make that explicit.
+A geometry note for anyone reading vertical motion off a LOS series: at a
+beam elevation of 10°, LOS sensitivity to vertical motion is `sin(10°) =
+0.17` against `cos(10°) = 0.98` for horizontal, and 0.17 is what
+`vertical_sensitivity` returns for this scene; the sine of the beam
+elevation to a target at its own height, which the function does not
+compute, runs from 0.05 at the snout to 0.20 at 3000 m. One line of sight
+cannot separate the two components. `vertical_sensitivity` and
+`decompose_los` make that explicit.
 
 ## What the 20170803 day actually shows
 
@@ -79,20 +74,13 @@ Running the full 722 pairs, referenced to bedrock (`examples/baker_diurnal.py`):
 | amplitude vs slant range | r = −0.015 | r = −0.164 |
 | **ice / bedrock ratio** | **0.84** | **1.59** |
 
-Referencing removed a 99.4 mm peak-to-peak common mode and did what it should:
-the bedrock phase concentration collapsed from 0.919 (every rock pixel peaking
-at the same hour — a systematic error) to 0.141 (incoherent, as unmoving ground
-should be), and the peak-hour map went from one uniform colour to real spatial
-structure.
-
-**The honest verdict is still negative.** Ice diurnal amplitude is 1.59× the
-bedrock error floor — suggestive, but under the 2× bar the script applies, and
-41 % of the remaining variance is still explained by the refractivity series
-alone. This is not a detection of subglacial hydrology, and the pipeline says
-so rather than reporting the 17.9 mm on its own.
-
-That is close enough to the floor to be worth pursuing with better data, which
-is the case for the next section.
+Referencing removed a 99.4 mm peak-to-peak common mode: the bedrock phase
+concentration fell from 0.919 (every rock pixel peaking at the same hour) to
+0.141, and the peak-hour map went from one uniform colour to spatial
+structure. The referenced ice amplitude is 1.59× the held-out bedrock floor,
+under the 2× criterion the script applies, and 41 % of the remaining variance
+is explained by the refractivity series alone; the script reports no
+detection at this stage.
 
 ## The reference audit: coherence is not stationarity
 
@@ -103,43 +91,34 @@ mask against the **Randolph Glacier Inventory** (`gpri_tools.glaciers`,
 "bedrock" was on RGI glacier** (14,407 of 22,030 px on 20170803, with the
 measured heading) — Coleman, Roosevelt and Mazama surfaces were
 in the reference, so every earlier bedrock-referenced product was tied to
-moving ground: real motion subtracted from the maps, an artificial signal
-pushed onto rock, and a "bedrock null" that was mostly ice.
+moving ground: the reference's own motion was subtracted from the maps and
+pushed onto the rock, and the "bedrock null" was mostly ice.
 
 ![Reference audit against RGI](figures/16_rgi_reference_20170803.png)
 
 Correcting the masks (reference = coherent ∧ outside buffered RGI outlines;
-ice = RGI-defined) changes the diurnal verdict materially — see the
-single-step least-squares numbers below. The overlay is only as good as the
-scan heading it is drawn with, and the 105° used through v0.5.0 was a guess:
-the terrain itself (["The scan heading is not in the data"](../README.md#the-scan-heading-is-not-in-the-data))
+ice = RGI-defined) changes the numbers below. The overlay is only as good as
+the scan heading it is drawn with, and the 105° used through v0.5.0 was a
+guess: the terrain itself
+(["The scan heading is not in the data"](../README.md#the-scan-heading-is-not-in-the-data))
 puts 20170803 at 107.4°, and the other campaigns anywhere from 100.1° to
 122.8°. The masks are now drawn with each campaign's measured heading.
 
 ## Does the pipeline actually recover ice motion?
 
-The sharpest check available, on the corrected 20170803 day — cumulative LOS
-displacement after 24.2 h, RGI-defined ice against **held-out** rock (rock the
-corrections never saw):
+Cumulative LOS displacement after 24.2 h on the corrected 20170803 day,
+RGI-defined ice against **held-out** rock (rock the corrections never saw):
 
 | | pixels | median | mean | p16–p84 |
 |---|---:|---:|---:|---:|
 | RGI ice | 25,992 | **+90.0 mm** | +104.8 mm | +7 to +208 |
 | held-out rock | 3,816 | **−1.2 mm** | +1.4 mm | −27 to +28 |
 
-(`baker_population.py` prints this table for every campaign.) Rock sits at
-zero — as unmoving ground must, and it was never used to fit the
-corrections — while the ice moves 90 mm toward the radar over the day. The
-correlation between ice displacement and slant range is **+0.06**, so this is
-not the epoch screens extrapolating a ramp over the ice; it is spatially
-organised motion where the inventory says there is a glacier. A day of
-~90 mm LOS is the right order for Coleman and Roosevelt flow projected onto a
-near-horizontal look direction. The same rows for the other eight scenes are
-under ["Eight campaigns on one clock"](#eight-campaigns-on-one-clock).
-
-This is the secular signal, and it is the part the old ice-contaminated
-reference was actively destroying. The diurnal remains the harder question
-below.
+(`baker_population.py` prints this table for every campaign.) The held-out
+rock median is −1.2 mm over the day; the RGI ice median is +90.0 mm toward
+the radar. The correlation between ice displacement and slant range is
+**+0.06**. The same rows for the other eight scenes are under
+["Eight campaigns on one clock"](#eight-campaigns-on-one-clock).
 
 ## Single-step least squares, after Ohenhen et al.
 
@@ -155,20 +134,17 @@ integrate-then-fit pipeline cannot do:
 - per-pair coherence weights enter naturally — the measured win is ~2× lower
   amplitude error under uneven pair quality;
 - every amplitude map comes with a σ map, so "diurnal detection" can mean
-  `amplitude > 3σ` per pixel, and held-out bedrock gives the real false-alarm
+  `amplitude > 3σ` per pixel, and held-out bedrock gives the false-alarm
   rate of the whole chain for free.
 
 The constant cancels in the differencing, so no reference epoch is needed and
-disconnected networks still constrain rate and harmonics. And the error bars
-say something blunt worth hearing: a short-pair chain sees only `A·ω·Δt` of a
+disconnected networks still constrain rate and harmonics. The error bars
+also say where the sensitivity is: a short-pair chain sees only `A·ω·Δt` of a
 smooth harmonic per pair, so most of the diurnal sensitivity lives in the
-longer combinations a daisy chain does not have — the same conclusion the
-campaign inventory reached about 20170827 from the other side.
+longer combinations a daisy chain does not have.
 `examples/baker_pairlsq.py` runs the comparison on real data
-(`docs/figures/15_pairlsq_20170803.png`). With coherence-only masks the
-result was null (ice/bedrock ratio 2.1, 3.6 % of ice above 3σ vs a 1.2 %
-false-alarm rate). **With the RGI-corrected masks** (`--rgi`) the picture
-sharpens:
+(`docs/figures/15_pairlsq_20170803.png`), with coherence-only masks and
+**with the RGI-corrected masks** (`--rgi`):
 
 | | coherence-only | RGI-corrected |
 |---|---:|---:|
@@ -178,14 +154,13 @@ sharpens:
 | ice above 3σ | 3.6 % | **9.3 %** |
 | bedrock false-alarm rate | 1.2 % | **0.8 %** |
 
-The bedrock false-alarm rate falls to ~the value the error bars predict —
-the uncertainty model is close to calibrated once the null is on actual rock
-— and the ice contrast clears the 2× bar for the first time, at ~10× the
-bedrock detection rate. Projecting the refractivity series out inside the
-fit does not move the ice amplitude (17.9 → 17.9 mm): what remains on
-RGI-defined ice is not refractivity-shaped. Still a population-level
-contrast rather than a per-pixel detection (median SNR 1.64), and one cycle
-cannot show the signal repeats — that remains 20170827's job.
+With the RGI masks the bedrock false-alarm rate is close to the value the
+error bars predict, the ice/bedrock ratio is 2.50, and 9.3 % of the ice
+passes 3σ against 0.8 % of the bedrock. Projecting the refractivity series
+out inside the fit leaves the ice amplitude where it was (17.9 → 17.9 mm).
+The median per-pixel SNR is 1.64, so this is a population-level contrast
+rather than a per-pixel detection, and one cycle cannot show whether the
+signal repeats — that is what `20170827` is for.
 
 ## Which campaign to use
 
@@ -215,16 +190,15 @@ refocused here across the full swath so that every campaign is processed the
 same way. The same backup settles a negative: there is no GPRI data from late
 August or September 2019, whatever the field plan intended.
 
-**`20170827` is the dataset the experiment deserves** — 44.9 hours, 1335
-acquisitions at 2-minute cadence, nearly two full cycles, and an *i*→*i*+3
-network that actually has closure. It was left as 582 GB of raw sweeps;
-`gpri focus` turns those into SLCs for both antennas (about 90 minutes,
-I/O-bound). Two things about it to know before using it: the scan was widened
-from −30..50° to −30..60° after the first 197 acquisitions, so the SLCs come
-in two lengths (396 and 446 lines — `SlcPairStack` crops every pair to the
-common leading block, which starts at the same azimuth), and there are two
-gaps in the cadence, 19 minutes at that geometry change and 8 minutes a day
-later.
+`20170827` is the longest 2017 record — 44.9 hours, 1335 acquisitions at
+2-minute cadence, nearly two full cycles, and an *i*→*i*+3 network that has
+closure. It was left as 582 GB of raw sweeps; `gpri focus` turns those into
+SLCs for both antennas (about 90 minutes, I/O-bound). Two things about it to
+know before using it: the scan was widened from −30..50° to −30..60° after
+the first 197 acquisitions, so the SLCs come in two lengths (396 and 446
+lines — `SlcPairStack` crops every pair to the common leading block, which
+starts at the same azimuth), and there are two gaps in the cadence, 19
+minutes at that geometry change and 8 minutes a day later.
 
 `20170803` — one cycle, processed by GAMMA — remains the default scene, and
 `20170803_full` is that same day refocused from its 723 raw acquisitions. The
@@ -261,29 +235,29 @@ scan than any later campaign.
 
 ## Two days: does the diurnal repeat?
 
-`20170827` is now focused and run through the whole chain (`bin/run_scene.sh
+`20170827` is focused and run through the whole chain (`bin/run_scene.sh
 20170827`: aps ladder, RGI audit, pair-domain fit, repeat test, five movies,
 two-antenna replicate and closure, both antennas, about two hours after the
 88-minute focus). The RGI audit drops 73 % of the coherence-only reference as
 glacier (16,805 of 23,092 px); the campaign's coherence is lower than
 20170803's (median 0.28 at 5×5 looks), so the true-rock reference is 6,287
 px against 7,623. On that reference the atmospheric ladder repeats its
-20170803 shape a third and fourth time — per-pair screens hurt (B 129 % of
-A), turbulence recovers most of it (D 110 %), and plain referencing at 35.8
-mm over 44.9 h is what 20170803's 27.1 mm over 24.2 h becomes under √t
-growth (37.0 mm predicted) — see
+20170803 shape a third and fourth time — the per-pair screens raise the
+held-out residual (B 129 % of A), the turbulence screen recovers most of it
+(D 110 %), and plain referencing at 35.8 mm over 44.9 h is what 20170803's
+27.1 mm over 24.2 h becomes under √t growth (37.0 mm predicted) — see
 [`atmosphere.md`](atmosphere.md).
 
-The pair-domain fit over both days (`15_pairlsq_20170827.png`) is weaker
-than 20170803's: ice median amplitude 11.6 mm against held-out rock 6.2 mm
-(ratio 1.9), 2.2 % of ice above SNR 3 against a 1.3 % false-alarm rate. The
-two antennas replicate each other on 0.3 % of ice pixels against 0.2 % of
-rock (75 pixels, peak times agreeing to a median −0.3 h, IQR 1.4 h), and
-the measured noise floor is RMS(u − l)/√2 = 22.2 mm on held-out rock
-against 30.6 mm total — 21.1 mm of common-mode error, the atmosphere the two
-antennas share. Per pixel, then, a two-day daisy chain at single look does
-not detect the diurnal any better than one day did. The question the second day was bought for is
-answered at the population level instead.
+The pair-domain fit over both days (`15_pairlsq_20170827.png`) gives a lower
+contrast than 20170803's: ice median amplitude 11.6 mm against held-out rock
+6.2 mm (ratio 1.9), 2.2 % of ice above SNR 3 against a 1.3 % false-alarm
+rate. The two antennas replicate each other on 0.3 % of ice pixels against
+0.2 % of rock (75 pixels, peak times agreeing to a median −0.3 h, IQR
+1.4 h), and the measured noise floor is RMS(u − l)/√2 = 22.2 mm on held-out
+rock against 30.6 mm total — 21.1 mm common-mode between the two antennas.
+Per pixel, then, a two-day daisy chain at single look gives the same order
+of ice/rock contrast as one day. The rest of this section is at the
+population level.
 
 **`examples/baker_repeat.py`** fits the same corrected observations three
 times — pairs inside the first 24 h, inside the last 24 h, and all of them —
@@ -298,28 +272,25 @@ with the same mean over held-out bedrock
 | both | 6.4 mm | 20:30 | 0.36 mm | 18 |
 
 The lower antenna gives 2.4 / 12.1 / 6.3 mm within an hour of the same
-peaks. The glacier population has a diurnal term on both days that the
-bedrock population does not; but it is 3× larger on the second day and
-peaks 5.8 h earlier, and the two days' phasor maps correlate at only 0.19
-across the ice — less than the 0.26 that the bedrock's residuals manage.
-Read as a harmonic, the signal does not repeat.
+peaks. The ice mean phasor is 5–18× the bedrock's; it is 3× larger on the
+second day than the first and peaks 5.8 h earlier, and the two days' phasor
+maps correlate at 0.19 across the ice, against 0.26 for the bedrock's
+residuals.
 
-**`examples/baker_population.py`** shows why the harmonic is the wrong
-basis. It plots the median of every pixel's departure from its secular
-trend — the same-hour rate of the next paragraph, or its own linear trend
-on a record under a day — over the ice and over held-out rock, against a
-UTC clock
+**`examples/baker_population.py`** plots the median of every pixel's
+departure from its secular trend — the same-hour rate of the next paragraph,
+or its own linear trend on a record under a day — over the ice and over
+held-out rock, against a UTC clock
 ([`19_population_20170827.png`](figures/19_population_20170827.png)).
 The ice median is a **night-time trough with a sharp morning recovery** on
 both days: behind trend from about 05 UTC (22:00 PDT), lowest at 08–13 UTC,
 back above trend by 15 UTC (08:00 PDT), highest at 02–03 UTC (19:00–20:00
 PDT). The trough is −9 mm on the first night and −21 mm on the second, and
 the second morning's rise is a step of some 25 mm in two hours — which a
-24 h sinusoid can only render as a larger amplitude at an earlier phase,
-exactly what the table above reports. Over the same 45 hours the held-out
-bedrock median stays within ±1.2 mm (RMS 0.46 mm against the ice's 7.9 mm,
-correlation −0.48); the ice's secular LOS rate is +14.1 m/yr, the rock's
-+0.4.
+24 h sinusoid renders as a larger amplitude at an earlier phase, as the
+table above reports. Over the same 45 hours the held-out bedrock median
+stays within ±1.2 mm (RMS 0.46 mm against the ice's 7.9 mm, correlation
+−0.48); the ice's secular LOS rate is +14.1 m/yr, the rock's +0.4.
 
 **Separating the two without assuming a waveform.** A least-squares line
 through one cycle of a waveform that is not symmetric about the middle of
@@ -339,18 +310,17 @@ the line by −6.7 m/yr, 9 mm at either end of the day, and with the tilt out
 the ice anomaly closes on itself, +17 mm at 22 UTC on both evenings. On
 20170713_full the same correction takes +2.1 to +4.8 m/yr (five pairs at
 the two ends of a record five minutes short of a day; the lower antenna
-gives +4.7). Held-out rock, which does not move, comes out at −0.7 and
-+0.6 m/yr by the same estimator — its error on a one-cycle record, where
-only the ends can be paired. On 20170827 there are 632 pairs across 20.9 h
-and the line and the same-hour rate agree, +14.7 against +14.1 m/yr (rock
-+0.4): over 1.87 cycles the tilt is already small. What that record also
-gives is the error bar a one-day record cannot give itself: read the
-same-hour rate from every 40 min window of pairs across its two days, as a
-one-day record has to, and the ice's comes out anywhere from +5 to +23
-m/yr (p16–p84 +8.4 to +18.9, a scatter of ±4.8 m/yr; the rock's ±0.5). A
-same-hour rate from one day of ice therefore carries about ±5 m/yr of that
-day's non-repeating motion — the estimator is unbiased, the day is not —
-and the 6.7 m/yr tilt on 20170803 is of that size. The trough's shape is
+gives +4.7). Held-out rock comes out at −0.7 and +0.6 m/yr by the same
+estimator — its error on a one-cycle record, where only the ends can be
+paired. On 20170827 there are 632 pairs across 20.9 h and the line and the
+same-hour rate agree, +14.7 against +14.1 m/yr (rock +0.4): over 1.87
+cycles the tilt is already small. That record also gives the error bar a
+one-day record cannot give itself: read the same-hour rate from every
+40 min window of pairs across its two days, as a one-day record has to, and
+the ice's comes out anywhere from +5 to +23 m/yr (p16–p84 +8.4 to +18.9, a
+scatter of ±4.8 m/yr; the rock's ±0.5). A same-hour rate from one day of
+ice therefore carries about ±5 m/yr of that day's non-repeating motion, and
+the 6.7 m/yr tilt on 20170803 is of that size. The trough's shape is
 untouched by any of this; what changes is the rate under it and the
 anomaly's value at the two ends of a one-day record.
 
@@ -365,17 +335,15 @@ Held-out rock's composite is 0.36 mm. The fraction that repeats is the
 number the one-day campaigns cannot supply: a single cycle can be separated
 from its trend, but not from its own noise.
 
-So the timing repeats — the trough and the morning recovery fall at the
-same hours on consecutive days — while the amplitude does not, and the
-waveform is nothing like a sinusoid. That is what a melt-forced response
-looks like (input stops at dusk, the system drains overnight, the morning
-speed-up comes with the sun), and it is not what a residual atmosphere on
-the control looks like. The caveat is the one attached to every ice result
-here: the control is rock that sits at the ranges and heights where rock
-is, and the corrections are extrapolated from there onto ice that is higher
-and farther, so a stratified atmospheric term the rock cannot see is not
-excluded by the rock being flat. The two antennas cannot help with that —
-they share the atmosphere — and the next real control is meteorology.
+So the trough and the morning recovery fall at the same hours on
+consecutive days, while the amplitude differs by a factor of two between
+them and the waveform is not a sinusoid. Two limits of the control stay
+attached to every ice number here: the held-out rock sits at the ranges and
+heights where rock is, and the corrections are extrapolated from there onto
+ice that is higher and farther; and the two antennas share the air between
+them and the scene, so their agreement does not test the atmosphere. The
+meteorology of ["The weather, and what the ice does with
+it"](#the-weather-and-what-the-ice-does-with-it) is the independent record.
 
 ## Eight campaigns on one clock
 
@@ -423,46 +391,33 @@ same way — on the same rows:
 | … held-out rock median (p16–p84) | −3.0 mm (−27..+25) | +2.4 mm (−43..+48) | +2.4 mm (−41..+41) | −0.0 mm (−1..+1) |
 | trend-anomaly RMS, ice / rock | 10.9 / 0.8 mm | 12.3 / 0.3 mm | 3.7 / 0.5 mm | 1.0 / 0.1 mm |
 
-What the second table adds, before those three: on `20190719` the pair-domain
-diurnal finally clears SNR 3 over a fifth of the ice — and the held-out rock
-clears it over a tenth, so the ratio is 2.1 and most of what passed the
-threshold is that day's atmosphere, not the glacier. It is also the one place
-in the whole set where the turbulence screen earns its keep: the `20190719`
-lower antenna is 83 % of plain referencing at stage D, against 99–110 %
-everywhere else. And the two-cycle campaigns keep the same-hour estimator in
-work — 522 pairs of epochs a day apart on `20180808`, 509 on `20190719`,
-against 19 on the one-day `20170803_full`.
+Read across the two tables. On `20190719` the pair-domain diurnal passes SNR
+3 over 19.1 % of the ice and over 9.2 % of the held-out rock, a ratio of 2.1
+at the threshold and 1.7 in amplitude; its lower antenna is the one place in
+the set where stage D is below plain referencing, at 83 %, against 99–110 %
+everywhere else (upper antenna, both tables; the 88 % July showed with the
+105° mask was the mask — see [`atmosphere.md`](atmosphere.md)). The
+two-cycle campaigns give the same-hour estimator 522 pairs of epochs a day
+apart on `20180808` and 509 on `20190719`, against 19 on the one-day
+`20170803_full`. The pair-domain ice/rock ratios are 1.6, 1.9 and 1.7 on
+`20170713_full`, `20170827` and `20190719`, and 2.5 (2.6 on the refocused
+copy) and 2.2 on `20170803` and `20180808`; the replication rates are within
+a few tenths of a percent of the rock's on `20170713_full` and `20170827`
+(0.2 % / 0.4 % and 0.3 % / 0.2 %) and 13.7 % / 3.1 % on `20190719`. The
+held-out rock ends every record between −3.0 and +2.4 mm of zero; the RGI
+ice population ends 6 to 120 mm toward the radar, at same-hour rates from
++4.8 m/yr (`20170713_full`) to +67.6 m/yr (`20180709`). `20170913` has the
+lowest held-out residual of the campaigns that span half a day or more, by a
+factor of two — 9.1 mm over 14.5 h, ±3 mm at the end of the record, a
+common-mode floor of 2.6 mm against 10–23 mm on the summer days — with +48
+mm of ice over rock that holds to a third of a millimetre. `20160826_full`
+scores lower still (3.8 mm at stage A, a common-mode floor of 0.9 mm), but
+over 3.7 h against its 14.5. `20180709`'s ice displacement correlates with
+slant range at +0.39 (the others: −0.13 to +0.09); its rock is at −1.1 mm.
 
-Three things the two tables say. First, the atmospheric ladder never gains on
-true rock once the heading is right: stage D is 99–110 % of plain
-referencing on every campaign in both tables, which are the upper antenna —
-the one exception anywhere is `20190719`'s lower antenna at 83 %, above.
-(The 88 % July showed with the 105° mask was
-the mask, not the turbulence screen — see
-[`atmosphere.md`](atmosphere.md).) Second, the per-pixel diurnal
-stays a null on most of the full-cycle days — ice/rock ratios of 1.6, 1.9 and
-1.7 on `20170713_full`, `20170827` and `20190719`, replication rates within a
-few tenths of a percent of the rock's — and only two days clear the 2× bar:
-`20170803` at 2.5, 2.6 on its refocused copy, and `20180808` at 2.2.
-Third, **the ice moves, on every campaign, and the rock does not**: the
-held-out rock ends every record between −3.0 and +2.4 mm of zero while the RGI
-ice population ends 6 to 120 mm toward the radar, at secular rates from +4.8
-m/yr in July to +68 m/yr on the July 2018 morning. The mid-September campaign is
-the quietest atmosphere of the campaigns that span half a day or more, by a
-factor of two — 9.1 mm on held-out rock over 14.5 h, ±3 mm at the end of the
-record, a common-mode floor of 2.6 mm against 10–23 mm on the summer days —
-and the cleanest secular signal: +48 mm of ice motion over rock that holds to
-a third of a millimetre. `20160826_full` scores lower still (3.8 mm at
-stage A, a common-mode floor of 0.9 mm), but over 3.7 h against its 14.5,
-which is not the same measurement.
-2018's ice displacement correlates with slant range at +0.39
-(the others: −0.13 to +0.09), so on that short, co-registered morning some
-of the "motion" may be an epoch screen reaching over the ice; its rock is
-clean either way.
-
-**`examples/baker_seasons.py`** puts what the population series *do* share
-on one figure: every processed UTC day, ice median departure from its
-secular trend against the hour, with the held-out bedrock underneath
+**`examples/baker_seasons.py`** puts the population series on one figure:
+every processed UTC day, ice median departure from its secular trend
+against the hour, with the held-out bedrock underneath
 ([`20_seasons.png`](figures/20_seasons.png)). The trend is the
 same-hour rate of the previous section where the record allows one and the
 linear fit where it does not; `--detrend linear` reads every day against
@@ -489,65 +444,51 @@ Thirteen UTC days across eight scenes. 2017-08-04 is now read from
 `20170803_full` rather than the GAMMA scene, which is why its bedrock RMS is
 0.80 mm here against the 0.68 mm v0.5.0 reported.
 
-**This is where the measured headings changed a conclusion, and the
-detrend then qualified it.** With every campaign drawn at 105°, v0.5.0
-reported the night-time trough on three of four days — 07-14, 08-04 and
-08-29 correlated at 0.70–0.78. With the masks on their measured headings
-July has no trough at night (+1 to +3 mm from 05 to 11 UTC; its minimum is
-−7 mm at 19 UTC), and rerunning it with the sub-line azimuth shifts but the
-old 105° heading brings the old trough back (−5 mm at 05–07 UTC, ice rate
-−4.0 m/yr) while the measured 111.4° with no shifts leaves it gone. So
-July's "repeat" was a mask rotated 6.4° off its ground — at 5 km, 560 m —
-that counted the wrong pixels as ice, and it is retracted. (July's hourly
-medians do correlate with 08-04's at 0.55 once both are read against their
-same-hour rates: the two share a slide from above trend at 00–03 UTC to
-below it by evening, not the night; against 08-29 July is at −0.58.) The
-two August days, 25 days apart in two campaigns focused from raw, do share
-the trough: both fall behind their trend from 04–05 UTC and sit 7–17 mm
-below it from 06 through 11. What they share beyond it depends on the line
-the anomaly is read against. Against each pixel's linear trend the hourly
-ice medians correlate at 0.64 and 08-04 is back above trend by 13:24 UTC,
-as 08-29 is by 12:18; against the same-hour rate — +31.2 m/yr rather than
-the line's +24.5 — they correlate at **0.28**, and 08-04 stays 3–8 mm below
-its trend until 19–20 UTC while 08-29 is 6–13 mm above from 13 UTC on.
-Which view of 08-04's afternoon is right turns on that day's secular rate:
-the two lines differ by 6.7 m/yr, 9 mm over the day, and a one-day record
-fixes a same-hour rate to about ±5 m/yr. So part of the 0.64 was the line.
-The night-time slow-down is the feature the two days share on either
-reading; the afternoon is not yet one the data decide. 08-28 correlates
-with neither August day (−0.26, 0.17), as before. The three sub-cycle days
-say nothing about the trough: 09-15 begins at 06 UTC in the middle of it
-and is flat to ±2 mm against a 14.5 h trend; 07-10 runs 13:36–20:30 UTC and
-is flat to ±2 mm; 08-26 is a 3.7 h evening, 20:12–23:54 UTC, whose deepest
-point is −2.7 mm. The bedrock's hourly medians correlate between the 2017
-full days at −0.48 to +0.28 with no pattern, and the lower antenna
-reproduces the ice
-entries (0.21 for the August pair against the same-hour rates, 0.58 against
-the linear trends; 0.56 and −0.62 for July against the two).
+**The measured headings changed this table.** With every campaign drawn at
+105°, v0.5.0 reported a night-time trough on three of four days — 07-14,
+08-04 and 08-29 correlated at 0.70–0.78. With the masks on their measured
+headings July has no trough at night (+1 to +3 mm from 05 to 11 UTC; its
+minimum is −7 mm at 19 UTC); rerunning it with the sub-line azimuth shifts
+but the old 105° heading brings the old trough back (−5 mm at 05–07 UTC,
+ice rate −4.0 m/yr), and the measured 111.4° with no shifts leaves it gone.
+The 105° mask was 6.4° off its ground — 560 m at 5 km — and counted the
+wrong pixels as ice; July's v0.5.0 trough is retracted. July's hourly
+medians correlate with 08-04's at 0.55 once both are read against their
+same-hour rates (both slide from above trend at 00–03 UTC to below it by
+evening) and with 08-29's at −0.58. The two August days, 25 days apart in
+two campaigns focused from raw, both fall behind their trend from 04–05 UTC
+and sit 7–17 mm below it from 06 through 11. Beyond that the comparison
+depends on the line the anomaly is read against. Against each pixel's
+linear trend the hourly ice medians correlate at 0.64 and 08-04 is back
+above trend by 13:24 UTC, as 08-29 is by 12:18; against the same-hour rate
+— +31.2 m/yr rather than the line's +24.5 — they correlate at **0.28**, and
+08-04 stays 3–8 mm below its trend until 19–20 UTC while 08-29 is 6–13 mm
+above from 13 UTC on. The two lines differ by 6.7 m/yr, 9 mm over the day,
+and a one-day record fixes a same-hour rate to about ±5 m/yr, so the 08-04
+afternoon is not settled by that record alone. 08-28 correlates with
+neither August day (−0.26, 0.17). The three sub-cycle days: 09-15 begins at
+06 UTC and is flat to ±2 mm against a 14.5 h trend; 07-10 runs 13:36–20:30
+UTC and is flat to ±2 mm; 08-26 is a 3.7 h evening, 20:12–23:54 UTC, whose
+deepest point is −2.7 mm. The bedrock's hourly medians correlate between
+the 2017 full days at −0.48 to +0.28 with no pattern, and the lower antenna
+reproduces the ice entries (0.21 for the August pair against the same-hour
+rates, 0.58 against the linear trends; 0.56 and −0.62 for July against the
+two).
 
-Two things in the rock panel deserve stating. On 08-04 the bedrock median is
-a mirror image of the ice at one-fifteenth the scale (shape correlation
-−0.90 over the day, lines removed from both: +1 mm at 11 UTC while the ice
-is at −15, falling through the evening as the ice climbs) — the signature of a
-correction whose residual has opposite sign on rock and on the higher,
-farther ice, and a reason to distrust that day's amplitude more than its
-hours. On the other campaigns the correlation is −0.79 (July, at 0.2 mm
-rock RMS), −0.48, −0.58 and −0.31, and the rock stays within ±1.6 mm
-throughout. The night-time trough on the two August days is still the most
-repeatable thing this data set has produced, but it now rests on two days
-rather than three and on the night alone; what it is made of — ice, or an
-atmosphere stratified in a way rock at rock heights cannot register — is
-the question the next campaign has to be designed to answer, with
-meteorology on the glacier.
+In the rock panel, on 08-04 the bedrock median has the ice's shape
+inverted at one-fifteenth the scale (shape correlation −0.90 over the day,
+lines removed from both: +1 mm at 11 UTC while the ice is at −15, falling
+through the evening as the ice climbs). On the other campaigns the
+correlation is −0.79 (July, at 0.2 mm rock RMS), −0.48, −0.58 and −0.31,
+and the rock stays within ±1.6 mm throughout.
 
 ## Does it repeat between years?
 
-Three campaigns now run past one diurnal cycle, in three different years, so
-the question the two August 2017 days could only pose can be put to the record
-as a whole. `examples/baker_composite.py` stacks each campaign's UTC days into
-an hour-of-day composite (`gpri_tools.diurnal.hour_composite`: the mean at each hour,
-no waveform assumed) and measures what is left of each day once that composite
-is taken out.
+Three campaigns run past one diurnal cycle, in three different years.
+`examples/baker_composite.py` stacks each campaign's UTC days into an
+hour-of-day composite (`gpri_tools.diurnal.hour_composite`: the mean at each
+hour, no waveform assumed) and measures what is left of each day once that
+composite is taken out.
 
 ![hour-of-day composites](figures/21_composite.png)
 
@@ -557,63 +498,55 @@ is taken out.
 | `20180808` | 2 | +29.8 m/yr | 10.37 mm | 7.09 mm | 14 h, −15.2 mm | 0.31 mm |
 | `20190719` | 3 | +16.3 m/yr | 2.90 mm | 2.54 mm | 19 h, −6.1 mm | 0.47 mm |
 
-The ice composite beats its own bedrock composite by 6 to 30 times, so what
-repeats is not the reference wandering. But in every campaign the part that
-does **not** repeat is nearly as large as the part that does — 5.3 against
-5.7 mm, 7.1 against 10.4, 2.5 against 2.9 — the same warning the ±5 m/yr of
-the section above gives in the rate domain, now in the displacement domain:
-half of what one day shows at a given hour will not be there the next day.
+The ice composite is 6 to 34 times its own bedrock composite. In every
+campaign the part that does **not** repeat is nearly as large as the part
+that does — 5.3 against 5.7 mm, 7.1 against 10.4, 2.5 against 2.9 — the
+displacement-domain counterpart of the ±5 m/yr of the section above.
 
-Across campaigns the August days do line up. On the hourly clock of
-`baker_seasons.py`, 2017-08-04 correlates with 2018-08-09 at 0.57 and with
-2018-08-10 at 0.73, and 2017-08-29 with 2018-08-09 at 0.52 — four August days
-in two years, every one of them with its trough between 05 and 15 UTC, local
-night into late morning. July does not join in: 2019-07-20 sits at −0.74
-against 2018-08-09 and −0.20 against 2017-08-04, and the July composite is a
-third the size of August's. Whether that is seasonal — August melt against
-July — or is three campaigns' weather is not something eight campaigns can
-settle. It is, though, the first statement in this project that survives a
-change of year.
+Across campaigns, on the hourly clock of `baker_seasons.py`, 2017-08-04
+correlates with 2018-08-09 at 0.57 and with 2018-08-10 at 0.73, and
+2017-08-29 with 2018-08-09 at 0.52 — four August days in two years, each
+with its trough between 05 and 15 UTC. The July days do not: 2019-07-20 sits
+at −0.74 against 2018-08-09 and −0.20 against 2017-08-04, and the July
+composite is a third the size of August's. Eight campaigns cannot separate
+a seasonal difference from three campaigns' weather.
 
-Two cautions before it is quoted. `20180808`'s composite after 17:30 UTC rests
-on one day, because the record ends at 17:25 on the second, and the band in
-the figure vanishes there to say so. And that campaign's second day reaches
-−30 mm at 14 UTC, the largest excursion anywhere in the data set, which wants
-checking against that day's coherence before it is called ice.
+Two cautions before the table is quoted. `20180808`'s composite after 17:30
+UTC rests on one day, because the record ends at 17:25 on the second, and
+the band in the figure vanishes there to say so. And that campaign's second
+day reaches −30 mm at 14 UTC, the largest excursion anywhere in the data
+set, which has not yet been checked against that day's coherence.
 
 ## The weather, and what the ice does with it
 
-The diurnal result has two readings, ice and air, and the radar cannot
-separate them on its own. `gpri_tools.met` downloads what the air was doing
-— hourly SNOTEL from the USDA/NRCS AWDB API and ERA5 surface fields through
-the Open-Meteo archive, neither needing credentials — and
-`examples/baker_met.py` caches a week either side of every campaign so a
-rerun costs nothing. Four SNOTEL stations sit within 20 km; MF Nooksack is
-0.8 km from the BakerBend1 tripod and 255 m above it, and between 930 and
-1506 m the four give what one thermometer cannot: a lapse rate on the
+`gpri_tools.met` downloads what the air was doing — hourly SNOTEL from the
+USDA/NRCS AWDB API and ERA5 surface fields through the Open-Meteo archive,
+neither needing credentials — and `examples/baker_met.py` caches a week
+either side of every campaign so a rerun costs nothing. Four SNOTEL stations
+sit within 20 km; MF Nooksack is 0.8 km from the BakerBend1 tripod and 255 m
+above it, and between 930 and 1506 m the four give a lapse rate on the
 radar's own clock, and with it the sign of the stratification. (SNOTEL
 stamps its hours in the station's standard time, UTC−8 here, and reports
 °F and inches; both are converted by what the API states rather than by
 assumption, and an hour a station left empty stays NaN rather than being
 interpolated into weather that was never measured.)
 
-The first look is the reason this matters. The three campaigns with the
-largest ice anomalies are the three with frequent temperature inversions —
-`20170803` inverted in 31 % of its epochs, `20180808` 27 %, `20170827`
-18 % — and every campaign that never inverted has an ice anomaly under 4 mm
-RMS. On the two strongest, held-out bedrock, which does not move, carries
-an anomaly correlated with the lapse rate at 0.79 and 0.78. Stratification
-survives the correction, then. How much of it can reach the glacier is a
-different question, and `gpri_tools.refractivity.stratified_delay` answers
-it by integrating Smith–Weintraub refractivity along the straight path to
-every pixel at its DEM height and slant range, through a hydrostatic
-atmosphere with the measured lapse rate and constant relative humidity;
-`examples/baker_stratification.py` runs that over a scene's real geometry
-and then puts the field through the same operators the chain applies —
-`epoch_screen_correction` fitted on the fit half of the bedrock, then
-`turbulence_screen` — because what matters is the part that survives being
-referenced to rock. For `20170803`, over the lapse rate's own p16-to-p84
-swing (−5.9 to +2.1 °C/km):
+The three campaigns with the largest ice anomalies are the three with the
+most frequent temperature inversions — `20170803` inverted in 31 % of its
+epochs, `20180808` 27 %, `20170827` 18 % — and every campaign that never
+inverted has an ice anomaly under 4 mm RMS. On the two strongest, the
+held-out bedrock anomaly correlates with the lapse rate at 0.79 and 0.78.
+How much of a stratified delay can reach the glacier through the
+corrections is a separate calculation:
+`gpri_tools.refractivity.stratified_delay` integrates Smith–Weintraub
+refractivity along the straight path to every pixel at its DEM height and
+slant range, through a hydrostatic atmosphere with the measured lapse rate
+and constant relative humidity, and `examples/baker_stratification.py` runs
+that over a scene's real geometry and then puts the field through the same
+operators the chain applies — `epoch_screen_correction` fitted on the fit
+half of the bedrock, then `turbulence_screen` — because what matters is the
+part that survives being referenced to rock. For `20170803`, over the lapse
+rate's own p16-to-p84 swing (−5.9 to +2.1 °C/km):
 
 | | ice | held-out rock |
 |---|---:|---:|
@@ -623,16 +556,13 @@ swing (−5.9 to +2.1 °C/km):
 | predicted, mm per °C/km | −1.16 | +0.013 |
 | observed, mm per °C/km | −2.35 | +0.160 |
 
-A uniform atmosphere with the measured lapse rate accounts for about half
-the ice slope, with the right sign, and reproduces the sign flip between
-ice and rock. `20180808` is the same at 50 %, `20170827` 95 %; the two
-campaigns that never inverted show ~0 observed slope where the model still
-predicts −0.7 to −0.9, so the model is not a complete description and its
-cross-campaign behaviour is flat where the data vary. One methodological
-point the table makes: the raw delay is only 1.7× larger on ice than on
-rock, and it is the rock-fitted correction that drives the rock residual to
-near zero. **A small rock anomaly is weak evidence that the atmosphere is
-small over the ice.**
+The predicted ice slope is about half the observed one, with the same sign,
+and the model reproduces the sign flip between ice and rock. `20180808` is
+the same at 50 %, `20170827` 95 %; the two campaigns that never inverted
+show ~0 observed slope where the model predicts −0.7 to −0.9. One
+methodological point the table makes: the raw delay is only 1.7× larger on
+ice than on rock, and it is the rock-fitted correction that drives the rock
+residual to +0.1 mm while leaving −9.3 mm on the ice.
 
 Where the correction stops working is a matter of coverage. By range bin on
 `20170803`, the modelled stratification residual on ice after both screens:
@@ -646,276 +576,204 @@ Where the correction stops working is a matter of coverage. By range bin on
 | 8–9 | 21 | 4109 | −110.9 | −52.73 | 52 % |
 | 9–10 | 1 | 322 | −157.2 | −92.56 | 41 % |
 
-Where rock is dense the correction removes 93–98 % of the delay. Beyond
-7 km it removes 41–70 %, and 46 % of the ice sits there against 308 of the
-7,697 stable pixels. Two further reasons a clean held-out bedrock does not
-certify the glacier: `split_mask` shuffles the stable pixels at random, so
-the held-out half is interleaved with the fitted half and measures
-interpolation error surrounded by constraints, never extrapolation over
-ice; and at matched range the ice sits only 30–77 m above the rock, so
-this is a coverage problem in range rather than a height-offset problem.
+Where rock is dense the correction removes 93–98 % of the modelled delay.
+Beyond 7 km it removes 41–70 %, and 46 % of the ice sits there against 308
+of the 7,697 stable pixels. Two further properties of the control:
+`split_mask` shuffles the stable pixels at random, so the held-out half is
+interleaved with the fitted half and measures interpolation error
+surrounded by constraints, never extrapolation over ice; and at matched
+range the ice sits only 30–77 m above the rock, so the coverage gap is in
+range rather than in height.
 
 A screen built from range and azimuth cannot express a delay that depends
-on how far the beam has climbed, which is exactly what a stratified
-atmosphere does, so `epoch_screen_correction` now takes per-pixel
-covariates — centred on the fitted pixels and appended to the design
-matrix — and `gpri_tools.heading.target_heights` supplies DEM height per
-radar pixel; `baker_population.py --height-screen` writes the result beside
-the standard products (`19_population_<scene>_hz.png`). On the modelled
-field the height term does what it should, removing 58 % of the
-stratification residual over the ice (−9.26 mm to −3.86 mm). On the real
-data it changes almost nothing: the `20170803_full` ice RMS goes from 10.94
-to 10.57 mm and `20180808` from 12.29 to 12.73, and the lapse-rate slope
-and correlation of the ice anomaly are untouched to two decimals (−2.35 →
-−2.28 mm per °C/km at r = −0.80). That is the useful result. If the
-observed anomaly were the stratification residual this geometry predicts,
-a screen that removes 58 % of that residual should have taken a large bite
-out of it; it took 3 %. The anomaly's dependence on the lapse rate is
-therefore not the geometric leakage the forward model describes — both are
-more likely driven by the same warm, settled, inverted weather, which is
-also when the glacier melts.
+on how far the beam has climbed, so `epoch_screen_correction` takes
+per-pixel covariates — centred on the fitted pixels and appended to the
+design matrix — and `gpri_tools.heading.target_heights` supplies DEM height
+per radar pixel; `baker_population.py --height-screen` writes the result
+beside the standard products (`19_population_<scene>_hz.png`). On the
+modelled field the height term removes 58 % of the stratification residual
+over the ice (−9.26 mm to −3.86 mm). On the real data it changes little:
+the `20170803_full` ice RMS goes from 10.94 to 10.57 mm and `20180808` from
+12.29 to 12.73, and the lapse-rate slope and correlation of the ice anomaly
+move by 3 % (−2.35 → −2.28 mm per °C/km at r = −0.80).
 
 ![the ice against the air, 20170803](figures/22_weather_20170803_full.png)
 
-`examples/baker_weather_plots.py` draws the case (`22_weather_<scene>.png`):
-the ice anomaly and the air 0.8 km away as time series, positive toward the
-radar with the local night (00–06) shaded, then LOS velocity and displacement
-against temperature, coloured by hour of day, with held-out bedrock behind
-at the same scale. A response with no memory plots as a line; a delayed one
-plots as a loop whose width is the lag.
+`examples/baker_weather_plots.py` draws the ice beside the air
+(`22_weather_<scene>.png`): the ice anomaly and the air temperature 0.8 km
+away as time series, positive toward the radar with the local night (00–06)
+shaded, then LOS velocity and displacement against temperature, coloured by
+hour of day, with held-out bedrock behind at the same scale.
 
-Which is the other handle on the question. Meltwater has to reach the bed
-before it can raise the water pressure and let the glacier slide, so a
-melt-driven speed-up must peak after the forcing, while the delay a
-stratified atmosphere adds depends on the state of the air now.
-`examples/baker_lag.py` fits 24 h harmonics (`gpri_tools.diurnal.fit_harmonics`)
-to each campaign's population series and to the weather beside it and reports
-the phase difference — the phase, not the cross-correlation, because on a pair
-of diurnal signals a correlation searched over ±12 h always peaks in magnitude
-at the ends, where one has simply been inverted. The subtlety that decides the
-test: sliding is a velocity, but the population series is a displacement, so
-a melt-driven signal must show its displacement anomaly peaking a further
-quarter cycle — six hours — after the velocity. Measured on the three
+`examples/baker_lag.py` fits 24 h harmonics
+(`gpri_tools.diurnal.fit_harmonics`) to each campaign's population series
+and to the weather beside it and reports the phase difference — the phase,
+not the cross-correlation, because on a pair of diurnal signals a
+correlation searched over ±12 h always peaks in magnitude at the ends, where
+one has simply been inverted. Both the displacement and its time derivative
+are reported, because the population series is a displacement and the
+integral of a harmonic lags it by a quarter cycle. Measured on the three
 campaigns with the largest anomalies, the ice displacement peak sits +1.7,
-+1.0 and −3.1 h behind the air temperature, and the ice velocity peak −0.4,
-−4.6 and −8.2 h behind it: in phase with the air to within a few hours, not
-six or more hours behind it, and the velocity peaking at or before the
-forcing rather than after. The caveats matter — 1.0 to 1.9 cycles per record,
-so the phase is loosely constrained; the velocity harmonics explain 0.09 to
-0.39 of the variance; and an efficient late-season channel network can route
-water to the bed in an hour or two, which this could not distinguish from
-zero.
++1.0 and −3.1 h behind the air temperature's, and the ice velocity peak
+−0.4, −4.6 and −8.2 h behind it. The records hold 1.0 to 1.9 cycles, so the
+phase is loosely constrained, and the velocity harmonics explain 0.09 to
+0.39 of the variance.
 
 ### Which ice carries the waveform
 
-There are real reasons a glacier's diurnal speed-up could grow with
-elevation — a distributed drainage system under the accumulation zone
-against efficient channels lower down, steeper ice — so the elevation
-dependence of the anomaly is not by itself evidence against motion.
-`examples/baker_pixels.py` asks the pixels. Every ice pixel's corrected
-series is projected onto the population waveform
-(`gpri_tools.diurnal.waveform_share`: a least-squares share, 1 for a pixel
-that moves like the median, 0 for one that does not move with it), and the
-share is binned by what is known per pixel — its own secular LOS rate, its
-DEM height, its slant range, its distance from the bedrock the screens are
-built on — with `gpri_tools.diurnal.slope_within` giving the fixed-effects
-version: how the share varies with one of these among pixels that agree on
-the others. The comparison with bedrock is made at two stages, after the
-range-linear epoch screen alone (B) and after the turbulence screen on top
-(C), because the turbulence screen interpolates whatever the rock still
-carries away from the rock and cannot do the same over the ice. The figure
-is six panels: the share per pixel with the fitted bedrock outlined, the
-secular LOS rate positive towards the radar, the share against each pixel's
-own rate with the dotted line what a fractional speed-up would give, the
-share against height and against slant range (dashed after the range screen
-alone, solid after the turbulence screen on top), and the ice anomaly with
-the surface's brightness by height band beside it.
+`examples/baker_pixels.py` asks which pixels carry the population waveform.
+Every ice pixel's corrected series is projected onto the population
+waveform (`gpri_tools.diurnal.waveform_share`: a least-squares share, 1 for
+a pixel that moves like the median, 0 for one that does not move with it),
+and the share is binned by what is known per pixel — its own secular LOS
+rate, its DEM height, its slant range, its distance from the bedrock the
+screens are built on — with `gpri_tools.diurnal.slope_within` giving the
+fixed-effects version: how the share varies with one of these among pixels
+that agree on the others. The comparison with bedrock is made at two
+stages, after the range-linear epoch screen alone (B) and after the
+turbulence screen on top (C), because the turbulence screen interpolates
+whatever the rock still carries away from the rock and cannot do the same
+over the ice. The figure is six panels: the share per pixel with the fitted
+bedrock outlined, the secular LOS rate positive towards the radar, the
+share against each pixel's own rate with the dotted line what a share
+proportional to the rate would give, the share against height and against
+slant range (dashed after the range screen alone, solid after the
+turbulence screen on top), and the ice anomaly with the surface's
+brightness by height band beside it.
 
-![which ice carries the waveform, 20170803](figures/23_pixels_20170803_full.png)
+![the waveform share per pixel, 20170803](figures/23_pixels_20170803_full.png)
 
-Three hypotheses make three predictions, and the pixels answer all three.
+**Against the secular rate.** A share proportional to each pixel's own
+secular rate would be 0.24 per 10 m/yr through the origin here. At fixed
+range and height the measured slope is +0.005 per 10 m/yr (r = +0.02, 54
+cells, 25,891 pixels); ice moving under 5 m/yr carries 0.76 of the
+waveform; and the 2,372 pixels flowing *away* from the radar at −5 to −30
+m/yr carry +1.13 — the same sign as the ice flowing towards it. The other
+five campaigns: −0.08 to +0.08 per 10 m/yr at fixed range and height, and
+the ice flowing away from the radar carries +1.0 to +1.7 in every one of
+them. The sign of the waveform is the same everywhere: the ice comes
+*towards* the radar in the afternoon.
 
-**It is not the flow.** A fractional speed-up puts the share in proportion
-to each pixel's own secular rate, 0.24 per 10 m/yr through the origin here.
-At fixed range and height the measured slope is +0.005 per 10 m/yr
-(r = +0.02, 54 cells, 25,891 pixels); ice moving under 5 m/yr carries 0.76
-of the waveform; and the 2,372 pixels flowing *away* from the radar at −5
-to −30 m/yr carry +1.13 — the same sign as the ice flowing towards it,
-where any modulation of the flow, proportional or not, whatever its
-elevation dependence, would carry the waveform inverted. The other five
-campaigns agree: −0.08 to +0.08 per 10 m/yr at fixed range and height,
-and the ice flowing away from the radar carries +1.0 to +1.7 in every one
-of them. A vertical motion would have one sign everywhere, but the wrong
-one: the ice comes *towards* the radar in the afternoon, which for a radar
-below the glacier is subsidence at the hour hydraulic jacking lifts a
-glacier, and 35 mm of LOS at this geometry's vertical sensitivity would be
-decimetres of it.
+**Against height and range.** The share is 0.03 at 1400–1600 m and 0.4 at
+5–6 km, rising to 1.3–1.5 above 2200 m and beyond 7 km. Four of the other
+five campaigns show the same rise — −0.3 to +0.3 at 1400–1600 m and 0.3–0.7
+at 5–6 km against 1.3–1.9 at 2200–2600 m and 1.2–2.5 beyond 7 km — while
+`20170713_full` is flatter: 0.66 at 1400–1600 m, 0.89 at 5–6 km, 0.70–0.74
+at 2200–2600 m, 0.69 at 7–8 km and 1.12 at 8–9 km.
+Range and height are collinear along a glacier, and which of them organises
+the share at a fixed value of the other flips between campaigns (range at
+fixed height on `20170803_full` and `20180808`, +0.48 and +0.32 per km;
+height at fixed range on `20170827`, +0.11 per 100 m). Held-out bedrock at
+the same range and height, at stage B: +0.52 of the waveform at 7–8 km (147
+pixels; +0.38 at 2200–2400 m) against 1.38 on the ice there; +0.02 at 6–7
+km against 0.94; −0.18 at 5–6 km against 0.39. At stage C the turbulence
+screen takes the 7–8 km bedrock to 0.08 and leaves the ice there at 1.37.
+At stage B, held-out bedrock within half a screen sigma of the glacier
+carries +0.09 at 6–7 km and +0.33 at 7–8 km; ice within half a sigma of the
+fitted bedrock carries 0.65 and 1.11 — adjacent pixels whose beams share
+all but the last hundred metres of air.
 
-**It does grow up-glacier, and most of that is not the atmosphere.** The
-share is 0.03 at 1400–1600 m and 0.4 at 5–6 km, rising to 1.3–1.5 above
-2200 m and beyond 7 km, in every campaign. Range and height are collinear
-along a glacier, and which of them organises the share flips between
-campaigns (range at fixed height on `20170803_full` and `20180808`, +0.48
-and +0.32 per km; height at fixed range on `20170827`, +0.11 per 100 m),
-so the pixels cannot say which. What the held-out bedrock at the same
-range and height carries is the atmospheric part. At stage B, before
-anything interpolates it away, bedrock at 7–8 km carries +0.52 of the
-waveform (147 pixels; +0.38 at 2200–2400 m) against 1.38 on the ice there;
-at 6–7 km it carries +0.02 against 0.94; at 5–6 km −0.18 against 0.39. So
-at the far end of the swath roughly 40 % of the ice's share is the curved
-residual a linear range screen leaves, and the turbulence screen removes
-it from the rock (0.08) but not from the ice (1.37); between 6 and 7 km
-the ice's share is all its own. The effect also stops at the ice edge:
-held-out bedrock within half a screen sigma of the glacier carries +0.09
-at 6–7 km and +0.33 at 7–8 km, ice within half a sigma of bedrock 0.64 and
-1.14, adjacent pixels whose beams share all but the last hundred metres of
-air.
+**The brightness by height band.** The SLCs carry the surface's brightness
+as well as its phase (`SlcPairStack.backscatter`; for this panel the
+fit-half bedrock's median is taken out of every frame as the receiver's
+gain, which drifts 0.9–1.9 dB over a record). On `20170803_full` the ice
+above 2600 m swings 3.5 dB peak to peak — 1.7 dB above its mean at 08:00
+local and 1.8 dB below it at 13:45, falling from 08:00 to that trough;
+2200–2600 m swings 1.8 dB, the ice below 2200 m 1.0 dB, held-out bedrock
+0.34 dB. `20170827` runs two days — darkest at 21:00–22:30 local on both
+nights (−0.75 and −0.82 on 27–28 August, −0.81 on 28–29), with a shallower
+afternoon minimum of −0.56 to −0.69 at 13:00–15:00, brightest at 08:00–09:00
+local on the first full morning (+0.24) and 06:00–07:00 on the second
+(+1.58), 2.6 dB peak to peak above 2600 m — while its anomaly peaks between
+07:00 and 12:00; `20180808` swings 1.3 dB there, its hourly means peaking at
+18:00 local on the first evening (+0.44), 17:00 on the second (+0.49) and
+05:00–06:00 on the final morning (+0.58, the record's brightest hour), and
+darkest at 13:00–14:00 (−0.37). Per pixel, at fixed range and height, the
+share is independent of a pixel's own brightness cycle (+0.02 per dB/10 mm,
+r = +0.01), although that cycle varies ten times more from pixel to pixel
+than its noise. In time, the phase trough (04:30 local) leads the brightest
+hour by about three and a half hours and the afternoon recovery follows the
+darkening by two or three.
 
-**The surface itself changes over the day.** The SLCs carry the surface's
-brightness as well as its phase
-(`SlcPairStack.backscatter`, the fit-half bedrock's median taken out of
-every frame as the instrument's gain, which drifts ~1.5 dB over a day).
-On `20170803_full` the ice above 2600 m swings 3.5 dB peak to peak —
-1 dB below its mean through the warm afternoon, 1.6 dB above it at 07:00–
-08:00 local, falling sharply again from 08:00 to 13:30 — the signature of
-snow that wets by day and refreezes by night at Ku band; 2200–2600 m
-swings 1.8 dB, the bare ice below 2200 m 1.0 dB, held-out bedrock
-0.34 dB. `20170827` keeps that clock for two days — brightest at
-06:30–08:00 local, darkest at 21:00–22:30, 2.6 dB peak to peak above
-2600 m — while its anomaly peaks late in the morning rather than the
-afternoon; `20180808` swings only 1.3 dB there, and its brightest hour on
-the first day is 18:00 local, the anomaly's own peak. This is the same ice
-that carries the waveform, and on `20170803_full` the waveform
-has the sign a wet surface gives: a phase centre at the surface by day,
-inside a refrozen crust by night. But per pixel the two do not go
-together — at fixed range and height the share is independent of a
-pixel's own brightness cycle (+0.02 per dB/10 mm, r = +0.01), although
-that cycle varies ten times more from pixel to pixel than its noise — and
-the timing is imperfect: the phase trough leads the brightest, driest
-surface by about four hours and the afternoon recovery lags the wetting
-by two or three.
-
-What the pixels leave standing, then, is a signal that is real, sits on
-the ice and not in the air over it, grows up the glacier, has one sign
-whichever way the ice flows, is in phase with the air temperature, and is
-too large and too early to be the glacier moving. A change in the snow
-surface's dielectric state is the one candidate consistent with all of
-that; the per-pixel brightness test is the mark against its simplest
-form. That form — a phase centre at a wet surface by day and inside a
-refrozen crust by night — makes a prediction the other campaigns can
-test: the anomaly should be largest where the surface cycles between wet
-and refrozen, and absent where it never freezes. The weather says which
-campaigns those are. Carried up from MF Nooksack at −6.5 °C/km, the air
-at 2600 m never fell below 11 °C in any of the three August records,
-while `20190719` in July — the campaign with a third of August's composite
-and no inversions — spent 23 % of its hours below freezing there, and
+**The air at 2600 m.** Carried up from MF Nooksack at −6.5 °C/km, the air
+at 2600 m never fell below 11 °C in any of the three August records;
+`20190719` spent 23 % of its hours below freezing there, and
 `20170713_full` and `20170913` sat within a degree or two of it. The
-test is run below, after the literature.
+per-campaign table under ["The brightness as a melt
+gauge"](#the-brightness-as-a-melt-gauge) puts those beside the brightness
+swing and the anomaly.
 
 ### What the Ku-band literature says
 
-Nobody has reported a diurnal apparent-displacement cycle from melt and
-refreeze under a GPRI, but every piece of the mechanism is published, and
-the instrument's own community has read its brightness this way before.
+Published work touching the quantities measured here, for reference:
 
-GPRI intensity and coherence have mostly been used for things other than
-the surface's dielectric state: iceberg and mélange tracking on the
-intensity ([Voytenko et al. 2015](https://doi.org/10.3189/2015JoG14J099),
-[Xie et al. 2019](https://doi.org/10.1038/s41467-019-10908-4)), the loss
-of coherence as a clock for mélange break-up
-([Cassotto et al. 2021](https://doi.org/10.1038/s41561-021-00754-9)),
-calving, rockfall and avalanche mapping by decorrelation
-([Walter et al. 2020](https://doi.org/10.5194/tc-14-1051-2020),
-[Caduff et al. 2015b](https://doi.org/10.1002/esp.3656)), sea-ice strain
-([Dammann et al. 2021](https://doi.org/10.3390/rs13010043)), land cover
-and ship tracking in GAMMA's own
-[information sheet](https://www.gamma-rs.ch/uploads/media/Instruments_Info/GPRI/information/GAMMA_GPRI_information.pdf).
-The two glacier-velocity papers closest to this one are cautionary.
-[Allstadt et al. 2015](https://doi.org/10.5194/tc-9-2219-2015), at Mount
-Rainier with 21–24 h records, saw subtle changes that "may reflect actual
-diurnal velocity variability" but "cannot interpret these with
-confidence", and used the intensity only as a backdrop;
-[Riesen et al. 2011](https://doi.org/10.3189/002214311795306718), on
-Gornergletscher, watched 5 cm/day of melt destroy daytime coherence in
-anything longer than a two-hour interferogram. The one terrestrial
-Ku-band study that did establish a diurnal glacier speed-up —
-[Liu et al. 2019](https://doi.org/10.1017/jog.2019.1), IBIS-L at
-Laohugou No. 12, over 3 mm/h by day against under 1 mm/h at night — did it
-on corner reflectors checked against differential GPS, a control this
-experiment does not have.
-
-The snow work is the direct precedent.
-[Wiesmann, Caduff & Mätzler 2015](https://doi.org/10.1109/JSTARS.2015.2400972)
-used the GPRI to watch "rapid and local changes in snow parameters such
-as changes in the liquid water content";
-[Caduff et al. 2015a](https://doi.org/10.1002/2014GL062442) lost
-coherence within about fifteen minutes of a snow surface wetting and
-followed temperature-driven diurnal glide cycles through it.
-[Baffelli, Frey & Hajnsek 2019](https://doi.org/10.1109/JSTARS.2019.2953206),
-with the polarimetric KAPRI on Bisgletscher in July, saw diurnal
-backscatter variations on the glacier "probably related to changes in
-the ice surface water content, which in turn are correlated with solar
-radiation", with Ku-band penetration into wet ice near zero against
-metres into dry snow;
-[Stefko et al. 2022](https://doi.org/10.5194/tc-16-2859-2022) put the
-scattering mean free path in dry snow at 17.2 GHz at 0.4 m and the
-absorption length at 19 m;
-[Frey et al. 2015](https://doi.org/10.5270/fringe2015.pp37), tomography
-with SnowScat, resolved melt–freeze crusts and the ground through a dry
-snowpack and found "virtually no penetration into the snowpack" once its
-surface had melted. The older physics agree: backscatter falls with
-wetness, the more so at higher frequency and steeper incidence
-([Stiles & Ulaby 1980](https://doi.org/10.1029/JC085iC02p01037)); at
-35 GHz it depends on the surface's liquid water and on the thickness of
-the refrozen crust
-([Strozzi & Mätzler 1998](https://doi.org/10.1109/36.673677)); and the
-diurnal backscatter difference is how QuikSCAT maps melt and refreeze
-([Nghiem et al. 2001](https://doi.org/10.3189/172756501781831738)).
-
-That the phase centre moves with the crust is also on record.
-[Nilsson et al. 2015](https://doi.org/10.1002/2015GL063296) saw a
-refrozen melt layer raise CryoSat-2's Ku-band scattering horizon by
-56 ± 26 cm over Greenland;
-[Guneriussen et al. 2001](https://doi.org/10.1109/36.957273) showed that
-a change in dry snow produces an interferometric phase that "may wrongly
-be interpreted as range displacement" while the coherence stays high;
-[Leinss et al. 2015](https://doi.org/10.1109/JSTARS.2015.2432031) turned
-that into a snow-water-equivalent product at Ku and X band and note that
-wet-snow coherence decays within hours, and
-[Luzi et al. 2009](https://doi.org/10.1109/TGRS.2008.2009994) tracked a
-growing snowpack with a Ku-band ground radar's phase.
-
-Against that record the Baker signal reads consistently. The ±1 dB
-cycle in the upper glacier's brightness, dark by day and bright at dawn,
-is the melt–refreeze signature Nghiem and Baffelli describe; a scattering
-horizon that sits at a wet surface by day and inside a refrozen crust by
-night moves the phase centre away from the radar overnight, the sign of
-the trough, and the 35 mm of line-of-sight it takes puts that horizon,
-at snow's refractive index, some 3 cm down — a night's refreeze; and the
-share's rise from 0.03 at 1400–1600 m to 1.4 above 2200 m follows the
-early-August snowline. What the literature does not supply is a reason
-the share should be independent of a pixel's own brightness cycle, which
-is where the simplest version of this fails and where the cool campaigns
-come in.
+- GPRI intensity and coherence used for iceberg and mélange tracking
+  ([Voytenko et al. 2015](https://doi.org/10.3189/2015JoG14J099),
+  [Xie et al. 2019](https://doi.org/10.1038/s41467-019-10908-4)), loss of
+  coherence as a clock for mélange break-up
+  ([Cassotto et al. 2021](https://doi.org/10.1038/s41561-021-00754-9)),
+  calving, rockfall and avalanche mapping by decorrelation
+  ([Walter et al. 2020](https://doi.org/10.5194/tc-14-1051-2020),
+  [Caduff et al. 2015b](https://doi.org/10.1002/esp.3656)), sea-ice strain
+  ([Dammann et al. 2021](https://doi.org/10.3390/rs13010043)), and land
+  cover and ship tracking in GAMMA's own
+  [information sheet](https://www.gamma-rs.ch/uploads/media/Instruments_Info/GPRI/information/GAMMA_GPRI_information.pdf).
+- Terrestrial-radar glacier velocity over a day or two:
+  [Allstadt et al. 2015](https://doi.org/10.5194/tc-9-2219-2015) (Mount
+  Rainier, 21–24 h records, "cannot interpret [the sub-daily changes] with
+  confidence"); [Riesen et al. 2011](https://doi.org/10.3189/002214311795306718)
+  (Gornergletscher, daytime coherence lost in interferograms longer than
+  two hours during 5 cm/day of melt);
+  [Liu et al. 2019](https://doi.org/10.1017/jog.2019.1) (IBIS-L at Laohugou
+  No. 12, over 3 mm/h by day against under 1 mm/h at night, on corner
+  reflectors checked against differential GPS).
+- Snow under Ku-band terrestrial radar:
+  [Wiesmann, Caduff & Mätzler 2015](https://doi.org/10.1109/JSTARS.2015.2400972)
+  (GPRI, "rapid and local changes in snow parameters such as changes in the
+  liquid water content"); [Caduff et al. 2015a](https://doi.org/10.1002/2014GL062442)
+  (coherence lost within about fifteen minutes of a snow surface wetting;
+  temperature-driven diurnal glide cycles);
+  [Baffelli, Frey & Hajnsek 2019](https://doi.org/10.1109/JSTARS.2019.2953206)
+  (KAPRI on Bisgletscher in July, diurnal backscatter variations "probably
+  related to changes in the ice surface water content", Ku-band penetration
+  near zero into wet ice against metres into dry snow);
+  [Stefko et al. 2022](https://doi.org/10.5194/tc-16-2859-2022) (scattering
+  mean free path in dry snow at 17.2 GHz 0.4 m, absorption length 19 m);
+  [Frey et al. 2015](https://doi.org/10.5270/fringe2015.pp37) (SnowScat
+  tomography, "virtually no penetration into the snowpack" once its surface
+  had melted).
+- Backscatter and wetness: [Stiles & Ulaby 1980](https://doi.org/10.1029/JC085iC02p01037)
+  (backscatter falls with wetness, more so at higher frequency and steeper
+  incidence); [Strozzi & Mätzler 1998](https://doi.org/10.1109/36.673677)
+  (35 GHz backscatter against liquid water and refrozen-crust thickness);
+  [Nghiem et al. 2001](https://doi.org/10.3189/172756501781831738) (diurnal
+  backscatter difference as QuikSCAT's melt–refreeze map).
+- Phase and the scattering horizon in snow:
+  [Nilsson et al. 2015](https://doi.org/10.1002/2015GL063296) (a refrozen
+  melt layer raised CryoSat-2's Ku-band scattering horizon by 56 ± 26 cm
+  over Greenland); [Guneriussen et al. 2001](https://doi.org/10.1109/36.957273)
+  (a change in dry snow produces an interferometric phase that "may wrongly
+  be interpreted as range displacement" while coherence stays high);
+  [Leinss et al. 2015](https://doi.org/10.1109/JSTARS.2015.2432031)
+  (snow-water-equivalent from Ku- and X-band phase; wet-snow coherence
+  decays within hours); [Luzi et al. 2009](https://doi.org/10.1109/TGRS.2008.2009994)
+  (a growing snowpack tracked with a Ku-band ground radar's phase).
 
 ### The brightness as a melt gauge
 
-If the surface's wetness is what the radar is reading, the radar's own
-brightness should be able to say how wet, when, and how high up. The
-plainest view of it comes first. `examples/baker_melt.py` keeps every
-epoch's backscatter as it came off the SLC, and
-`examples/baker_brightness.py` shows it with nothing referenced,
+`examples/baker_melt.py` keeps every epoch's backscatter as it came off the
+SLC, and `examples/baker_brightness.py` shows it with nothing referenced,
 differenced or fitted: a grey-scale movie of the radar image through the
 day, black to white on one scale for the whole record, geocoded with the
 UTC clock in the corner (`figures/26_db_movie_<scene>.mp4`), and one line
 per campaign — the mean backscatter over the coherent ice (mean coherence
-≥ 0.5) in the glacier outline against UTC,
-the local night (00–06) shaded (`figures/26_db_series_<scene>.png`). The
-movie is smoothed for display only (a 5-epoch rolling mean and a
-1 × 2 px Gaussian, declared on the frame). Bedrock is in the frame as the
-control, and the instrument is in the numbers: the receiver's gain drifts
-by 0.9–2.1 dB over a record and steps by 10 dB two hours into
-`20170713_full`, which the raw line shows as it is.
+≥ 0.5) in the glacier outline against UTC, the local night (00–06) shaded
+(`figures/26_db_series_<scene>.png`). The movie is smoothed for display
+only (a 5-epoch rolling mean and a 1 × 2 px Gaussian, declared on the
+frame). Bedrock is in the frame as the control, and the instrument is in
+the numbers: the receiver's gain drifts by 0.9–1.9 dB over a record and
+steps by 10 dB two hours into `20170713_full`, which the raw line shows as
+it is.
 
 ![the glacier's mean backscatter through 20190719](figures/26_db_series_20190719.png)
 
@@ -940,12 +798,12 @@ in m/yr; the lower panel is the glacier-mean backscatter of the line
 above. Both sit on the UTC clock with the local night shaded. The window
 sets the noise, about ±20 m/yr on the two large catchments and more on
 the small ones, and the first hour of each record is a one-sided
-difference. Two things to read off it: on `20170713_full` the +58 m/yr
-spike at 21:45 UTC is the same epoch as the 10 dB gain step, an
-instrument event and not the ice; and on `20170913` Coleman and Roosevelt
-run at 30–60 m/yr toward the radar all day while Mazama and Thunder hover
-about zero, the line of sight seeing the two big catchments' flow and
-barely any of the other two.
+difference. Two things to note on it: on `20170713_full` all three
+catchments peak at 22:03 UTC — Coleman +58, Roosevelt +56, Thunder +36 m/yr
+— from +27, +40 and +4 at 21:33, an interval that spans the 10 dB gain step
+(between the 21:43 and 21:53 epochs), and fall back over the next hour; and
+on `20170913` Coleman and Roosevelt run at 30–60 m/yr toward the radar all
+day while Mazama and Thunder hover about zero.
 
 ![catchment-mean LOS velocity and the glacier's mean backscatter, 20190719](figures/27_catchments_20190719.png)
 
@@ -966,47 +824,42 @@ own DEM height (`air_temperature_at`, MF Nooksack carried up at
 (`$GPRI_WORK_ROOT/<scene>/melt_u_dec16.npz`), the tables are printed
 from the cache, and `--campaigns` puts the six in one table.
 
-In the cool campaigns the gauge reads cleanly, and it reads like a
-thermometer. On `20190719` the ice above 1800 m swings 5.4–7.0 dB peak to
-peak in the band composites (1.6–5.0 dB per pixel, against bedrock's
-0.9), darkest at 11:30–12:30 local below 2600 m and brightest at
-09:30–10:30, and the darkening walks up the mountain through the
-morning: the 1800–2600 m bands start to fall at 08:00, the ice above
-2600 m holds its dawn brightness until noon and then drops 6.8 dB to a
-trough at 20:30, and the lag-1 coherence follows the water down —
-0.92 at dawn on the upper glacier, 0.62–0.66 by evening, while bedrock
-stays above 0.85. Against the air at the pixel's height the brightness
-between 1800 and 2600 m falls at −0.11 to −0.26 dB/°C with r = −0.77 to
-−0.91 on the one-day records (`20170713_full` 1800–2200 m: −0.234 dB/°C,
-r = −0.91; `20170913`: −0.255, r = −0.88) and at −0.15 to −0.26 dB/°C
-with r = −0.30 to −0.58 over the two days of `20190719`, the looser fit
-being hysteresis: the surface is darker on the way down through a given
-temperature than on the way up. Above 2600 m the curve is flat, because
-the extrapolated air there is near 0 °C while the surface plainly melts —
-that band is radiation-driven — and by mid-September it barely cycles at
-all (0.69 dB on `20170913`): the top of the mountain had stopped melting.
-Bedrock's transfer curve is flat everywhere, −0.01 dB/°C.
+On `20190719` the hourly band means of the ice above 1800 m span 5.5–7.4
+dB over the record (1.6–5.0 dB of fitted peak to peak per pixel, against
+bedrock's 0.8). On the clock composite the 1800–2600 m bands are
+brightest at 09:30 local and darkest two hours later, at 11:30; the ice
+above 2600 m is brightest at 09:30–10:30, holds within 1.5 dB of that
+until 12:30 and then falls to a trough at 20:30, 6.5 dB below the peak.
+The lag-1 coherence follows the same clock: on the ice above 2600 m 0.92
+around 07:00 on the first morning and 0.66 around 19:30 on the second
+evening (0.89 and 0.71 in the composite), at 2200–2600 m 0.84 at 09:30
+and 0.65 at 11:30, while bedrock stays at 0.84–0.95. Against the air at
+the pixel's height the brightness between 1800 and 2600 m falls at −0.11
+to −0.26 dB/°C with r = −0.77 to −0.91 on the one-day records
+(`20170713_full` 1800–2200 m: −0.232 dB/°C, r = −0.91; `20170913`:
+−0.255, r = −0.88) and at −0.14 to −0.26 dB/°C with r = −0.30 to −0.58
+over the two days of `20190719`, where the surface is darker on the way
+down through a given temperature than on the way up. Above 2600 m the
+curve is flat (−0.04 to +0.00 dB/°C), with the extrapolated air there
+near 0 °C, and by mid-September that band barely cycles (0.69 dB on
+`20170913`). Bedrock's transfer curve is flat on every campaign, −0.013
+to +0.002 dB/°C.
 
-In the warm campaigns the gauge saturates. Below 2600 m the brightness is
-flat — 0.6–1.5 dB in the composites, 0.8–1.1 dB per pixel against
-bedrock's 0.6–1.0, correlated *positively* with the air if at all
-(+0.01 to +0.08 dB/°C) — which is what bare ice and firn that never
-drains look like at Ku band: once the top centimetres hold a few percent
-of water the penetration is already centimetres and more water changes
-little. Only the snow above 2600 m still cycles, 3.2 dB on
-`20170803_full` (darkest 13:30, brightest 07:30, −0.14 dB/°C, r = −0.55),
-2.4 dB on `20170827`, and 1.0 dB on `20180808` — 0.99 dB per pixel
-against a bedrock floor of 0.97: no cycle at all. The coherence says the
-same. On `20180808` the upper glacier's lag-1 coherence sits at
-0.68–0.83 day and night, lowest at midday, where `20190719`'s reached
-0.92 every dawn.
+On the three August campaigns the brightness below 2600 m is flat —
+0.6–1.5 dB in the hourly band means, 0.8–1.1 dB per pixel against
+bedrock's 0.6–0.9, correlated *positively* with the air if at all (+0.01
+to +0.08 dB/°C). Above 2600 m the swing is 3.2 dB on `20170803_full` (darkest
+13:30, brightest 07:30, −0.14 dB/°C, r = −0.55), 2.4 dB on `20170827`,
+and 1.0 dB on `20180808` — 0.99 dB per pixel against a bedrock floor of
+0.94. On `20180808` the upper glacier's lag-1 coherence sits at 0.68–0.82
+day and night, 0.68–0.71 through the afternoons, where `20190719`'s
+reached 0.92 on its first dawn and 0.84 on its second.
 
-Put beside the displacement anomaly, this is the test the refreeze
-hypothesis fails. The table is the per-pixel median peak to peak and
-trough hour of the ice above 2600 m, and the air at 2600 m
+The table puts the per-pixel median peak to peak and trough hour of the
+ice above 2600 m beside the displacement anomaly and the air at 2600 m
 (`baker_melt.py --campaigns`); the hour is the circular median of the
-per-pixel trough hour, left blank where the per-pixel hours have no common
-phase (mean resultant below 0.3):
+per-pixel trough hour, left blank where the per-pixel hours have no
+common phase (mean resultant below 0.3):
 
 | campaign | hours | anomaly RMS (mm) | swing above 2600 m (dB) | darkest (local) | air at 2600 m (°C) | hours below 0 °C | positive degree-hours |
 |---|---|---|---|---|---|---|---|
@@ -1017,64 +870,28 @@ phase (mean resultant below 0.3):
 | `20170803_full` | 25 | 10.9 | 2.0 | 18:30 | 13.3 (11.6–16.6) | 0 % | 331 |
 | `20180808` | 42 | 12.3 | 1.0 | — | 14.0 (11.0–16.8) | 0 % | 588 |
 
-The anomaly is largest where the surface never freezes, never drains
-and hardly changes brightness (12.3 mm with a 1.0 dB "cycle" at the noise
-floor), and smallest where the wet–dry cycle is strongest (3.7–4.1 mm
-with 4.5–5.0 dB); across the six it tracks the warmth — 1.3–4.1 mm at
-40–178 positive degree-hours, 7.9–12.3 mm at 331–623 — and not the
-refreeze, which only two of the six had at all. Epoch by epoch the
-upper glacier's brightness and the waveform do not even agree on a sign
-between campaigns (r = −0.48 to +0.51). So the melt–refreeze cycle is
-not what the anomaly is, and the brightness is not its gauge: whatever
-it is scales with how much the surface melts, not with whether it
-refreezes, and it is present on ice whose brightness and coherence say it
-is wet around the clock. The literature's phase centre inside a
-refrozen crust is the wrong version of the dielectric story for this
-mountain.
+Across the six, the anomaly RMS orders with the positive degree-hours —
+1.3–4.1 mm at 40–178, 7.9–12.3 mm at 331–623 — and against the swing above
+2600 m: the largest anomaly (12.3 mm, `20180808`) comes with a 1.0 dB
+swing at the bedrock floor, the smallest three (1.3–4.1 mm) with 1.9–5.0
+dB. One of the six campaigns, `20190719`, had hours below 0 °C at 2600 m,
+23 % of them; at 3000 m, `20170713_full` had 71 % of its hours below 0 °C,
+`20170913` 67 % and `20190719` 41 %, and the other three none.
+Epoch by epoch, the correlation between the upper glacier's brightness and
+the population anomaly ranges from −0.48 to +0.51 across the campaigns.
 
-Two things narrow what is left. The first is the far end of the swath.
-The 36–38 held-out bedrock pixels the outline leaves above 2600 m, at
-7.6–8.0 km, carry the waveform — 1.3 on `20180808`, 1.7 on `20190719`,
-2.7 on `20170913`, 0.4–0.5 in the three 2017 summer records — and their
-brightness does not cycle at all (0.5–0.8 dB, the rock floor), so what
-they carry is not a snow surface's. In the two cool multi-hour records it
-is as much as the ice at the same height carries (1.6 and 2.4), in the
-warm ones a third of it. That is the curved residual the linear range
-screen leaves at the far end, seen from the rock once more, and it means
-the steepest part of the up-glacier growth — the share above ~2400 m and
-beyond ~7.5 km — is partly (August) or wholly (July, September) the
-air's. The ice-specific signal is the part between 5 and 7 km, where
-1,000–1,700 held-out bedrock pixels at the same range carry nothing after
-the screens (−0.12 to +0.04): the ice at 6–7 km carries 0.77–1.35 of its
-campaign's waveform in all six
-records, which is 1.0–5.5 mm in the cool campaigns and 7.4–10.8 mm in the
-warm ones, on ice whose brightness swings 1 dB or less in August. The
-second is geometry. A melting surface goes down, fastest in the afternoon,
-and after the secular trend is removed that is a sawtooth with the sign
-the anomaly has for any surface flatter than the beam — a lowering target
-above the radar comes towards it, at a vertical sensitivity that grows
-from 0.05 at the snout to 0.20 at 3000 m. But 38 mm peak to peak at that
-sensitivity needs a fifth of a metre of diurnal lowering *residual*,
-0.4 m of surface a day, two to six times what melt removes on a hot day;
-the sensitivity grows fourfold up the glacier where the share grows
-sixty-fold and the melt that would drive it shrinks; and on the upper
-slopes that face the radar more steeply than the 7–10° beam a receding
-surface moves *away*, so the sign could not be uniform. Ablation lowering
-is the wrong size and the wrong shape.
-
-What survives is the version of the dielectric hypothesis the brightness
-cannot see: a surface that is wet day and night, whose *water content*
-still cycles with the melt — saturated by afternoon, drained but not dry
-by dawn — so that the Ku-band scattering horizon moves by centimetres
-while the backscatter, already saturated, hardly moves at all. That
-predicts a signal that scales with the melt rate rather than the
-refreeze, sits on the ice and not the rock, keeps one sign whichever way
-the ice flows, and is in phase with the air, which is the list the pixels
-left standing; the midday dip in `20180808`'s coherence is the one mark
-in its favour the radar itself provides. What it needs to be checked
-against is a measured liquid-water profile on the glacier, which this
-experiment does not have and a later one could — a snow pit's dielectric
-probe on the upper Coleman during a warm campaign would settle it.
+Two further numbers from the same caches. The 36–38 held-out bedrock pixels
+the outline leaves above 2600 m (16 on `20170713_full`), between 7.4 and 9.0
+km, carry the waveform after the screens — 1.3 on `20180808`, 1.7 on
+`20190719`, 2.7 on `20170913`, 0.4–0.5 in the three 2017 summer records,
+against 1.7, 1.9, 2.8 and 1.2–1.6 for the ice above 2600 m — with a fitted
+brightness swing of 0.4–0.8 dB, the rock floor. Between 5 and 7 km, where
+2,000–3,300 held-out bedrock pixels sit at the same range as the ice, the
+bedrock carries −0.08 to +0.01 of the waveform after the screens and the ice
+at 6–7 km carries 0.77–1.35 of its campaign's waveform in all six records —
+1.0–5.5 mm in the cool campaigns and 7.4–10.8 mm in the warm ones, on ice
+whose fitted brightness swing is 1.0–1.1 dB in August and 1.7–4.0 dB in the
+cool campaigns.
 
 ## Movies of the deformation field
 
@@ -1084,14 +901,13 @@ map frame — backscatter backdrop, real UTC clock, every processed campaign:
 - [`14_los_movie_20170803.mp4`](figures/14_los_movie_20170803.mp4) —
   cumulative displacement through the 24.2 h day (723 frames, 30 s)
 - [`14_los_movie_rate2h_20170803.mp4`](figures/14_los_movie_rate2h_20170803.mp4)
-  — motion over a trailing 2 h window, the right view for a diurnal signal:
-  unlike the cumulative view its noise is bounded instead of growing as √t
+  — motion over a trailing 2 h window; unlike the cumulative view its noise
+  is bounded instead of growing as √t
 - the same pair for `20170713`
 - [`14_los_movie_anommean_20170803.mp4`](figures/14_los_movie_anommean_20170803.mp4)
   and [`14_los_movie_anomtrend_20170803.mp4`](figures/14_los_movie_anomtrend_20170803.mp4)
   — each frame as an **anomaly**: the pixel's departure from its day mean
-  (`--anomaly mean`), or from its linear trend (`--anomaly trend`), which is
-  what a diurnal response looks like once steady flow is taken out. These
+  (`--anomaly mean`), or from its linear trend (`--anomaly trend`). These
   carry a second panel with the **reference displacement rate** the anomaly
   is read against — the per-pixel LOS rate over the day, in m/yr — and a
   time strip with the median anomaly over the moving pixels, its
@@ -1111,8 +927,8 @@ map frame — backscatter backdrop, real UTC clock, every processed campaign:
   [mean anomaly](figures/14_los_movie_anommean_20170827.mp4),
   [trend anomaly](figures/14_los_movie_anomtrend_20170827.mp4),
   [periodic anomaly](figures/14_los_movie_anomperiodic_20170827.mp4)) —
-  1335 frames over 44.9 h; the anomaly views' time strip is where the
-  night-time trough of the section above is easiest to see, twice.
+  1335 frames over 44.9 h; the anomaly views' time strip shows the two
+  night-time troughs of the section above.
 - and for `20170713_full`
   ([cumulative](figures/14_los_movie_20170713_full.mp4),
   [2 h rate](figures/14_los_movie_rate2h_20170713_full.mp4),
@@ -1147,11 +963,11 @@ cannot define.
 
 Corrections are the validated recipe (reference + drift removal + turbulence,
 no per-pair screens), referenced to **true rock** — coherent pixels outside
-the RGI outlines (`--rgi`). That matters visually as much as statistically:
-with the old coherence-only reference the corrections were partly subtracting
-glacier motion, and the field looked patchy and two-signed. Tied to rock, a
-coherent toward-radar lobe appears over Coleman and Roosevelt, reaching
-~25 mm per 2 h in the rate view.
+the RGI outlines (`--rgi`). With the old coherence-only reference the
+corrections were partly subtracting the reference's own motion, and the
+field looked patchy and two-signed; tied to rock, a coherent toward-radar
+lobe appears over Coleman and Roosevelt, reaching ~25 mm per 2 h in the
+rate view.
 
 Two caveats stay attached. The true-rock reference is smaller (7,623 px
 against 22,030 at this decimation), so the epoch screens extrapolate further
@@ -1160,8 +976,9 @@ a light spatial Gaussian — is printed on every frame rather than hidden;
 without it a per-pixel movie of single-look data is snow.
 
 The brightness has its own movies, one per campaign, listed under
-[the melt gauge](#the-brightness-as-a-melt-gauge): the radar image itself in
-grey scale on the same map and clock (`figures/26_db_movie_<scene>.mp4`).
+["The brightness as a melt gauge"](#the-brightness-as-a-melt-gauge):
+the radar image itself in grey scale on the same map and clock
+(`figures/26_db_movie_<scene>.mp4`).
 
 ## Two antennas, one day: the replicate
 
@@ -1179,16 +996,16 @@ split, corrections, pair-domain diurnal fit — on both
 | ice above SNR 3 | 9.3 % | 9.0 % |
 | held-out rock above SNR 3 (false alarms) | 0.8 % | 0.9 % |
 
-Every number replicates, which is the first time this pipeline has had a
-replicate at all. Two things follow that a single antenna could never give:
+Every number replicates. Two things follow that a single antenna cannot
+give:
 
 - **A measured noise floor.** `upper − lower` cancels deformation,
   atmosphere and reference error alike. On held-out rock
   RMS(u − l)/√2 = **16.7 mm** over the day, against 23.3 mm total, so
-  16.2 mm of the rock residual is *common-mode* — shared error the two
-  channels cannot see, not measurement noise. (Surface decorrelation is
-  common to both antennas too, so 17 mm is a lower bound on single-antenna
-  noise and 16 mm an upper bound on atmosphere plus reference.)
+  16.2 mm of the rock residual is *common-mode* — shared by the two
+  channels. (Surface decorrelation is common to both antennas too, so
+  17 mm is a lower bound on single-antenna noise and 16 mm an upper bound
+  on atmosphere plus reference.)
 - **A replication test for the diurnal detections.** 674 ice pixels
   (2.6 %) pass SNR 3 in *both* antennas — 3× the 0.8 % that two
   independent chance detections would give — and their peak times agree:
@@ -1196,10 +1013,10 @@ replicate at all. Two things follow that a single antenna could never give:
   where independent noise would spread them uniformly over 24 h. On rock,
   0.08 % survive the same test.
 
-Averaging the two channels raises the ice median SNR from 1.64 to 1.88 — not
-the √2 = 2.18 of independent noise, because the rest is common-mode. Which
-is also the limit of the replicate: the antennas share the atmosphere, so
-agreement between them is evidence against phase noise, not against
+Averaging the two channels raises the ice median SNR from the upper
+antenna's 1.64 to 1.88 — not the √2 × 1.64 = 2.32 of independent noise,
+because the rest is common-mode. That is also the limit of the replicate:
+the antennas share the air, so agreement between them tests phase noise, not
 atmosphere. The held-out-bedrock false-alarm rate remains the atmosphere
 control.
 
@@ -1222,37 +1039,36 @@ referencing already achieves what the full ladder appeared to, and the
 turbulence gain shrinks to ~3 % — `atmosphere.md` carries the corrected
 table. The methodological findings survive:
 
-Three findings worth stating plainly. **Per-pair screens do not improve the
+Three findings, measured. **Per-pair screens do not improve the
 integrated series** — their fit noise integrates into a random walk roughly as
 large as the atmosphere they remove (about half the "drift" on 20170713 was
 manufactured by the correction itself). **The non-parametric turbulence screen
 is the workhorse**: 19–36 % RMS reduction, from nothing but a normalised
 convolution of each epoch's residual over stable ground. And **what remains
-grows as √t and is spatially uncorrelated** — single-look phase noise, not
-atmosphere, so the next lever is multilooking/phase linking, not more screens.
+grows as √t and is spatially uncorrelated**.
 
 The ladder has no stratified (height-dependent) stage of its own: with one
 beam elevation, height is exactly linear in slant range and unidentifiable
 from the mixing ramp until a DEM supplies it per pixel. It is fitted on top
 of stage C as a covariate instead (`baker_population.py --height-screen`),
-and what that did is in "The weather, and what the ice does with it" above.
+and what that did is in ["The weather, and what the ice does with
+it"](#the-weather-and-what-the-ice-does-with-it) above.
 
-Closure phase is also now measured on real data: 20160826's merged
+Closure phase is also measured on real data: 20160826's merged
 single-reference + chain networks give 25 triangles
 (`examples/baker_closure.py`). On 1-look pixels closure is identically zero —
 multilooking creates the bias — and after a 3×15 boxcar the fitted `b(dt)`
 grows to ~0.08 rad (~0.1 mm) at 3 h with the classic fading-signal shape.
 
-On the day the analysis actually uses, the answer is different and cleaner.
+On the day the analysis actually uses, the answer is different.
 20170803's shipped network is a daisy chain with no triangles, so the pairs
 are formed from the SLCs instead: *i*→*i*+1..3 gives 2161 triangles, and
 adding the 1, 2, 3, 6 and 12 h baselines (`--lags 1 2 3 30 60 90 180 360`)
 gives 4996. In both cases the closure rms is ~1 rad (0.955 and 1.102 rad
 before correction) and the fitted `b(dt)` removes **none of it** — 0.953 and
-1.097 rad after, a 0 % reduction. That closure is dominated by decorrelation
-noise, not by a systematic short-baseline bias — and since the fitted bias
-is velocity-blind by construction, there is nothing here for a closure
-correction to change in the displacement chain, which applies none. The
+1.097 rad after, a 0 % reduction. Since the fitted bias is velocity-blind
+by construction, there is nothing here for a closure correction to change
+in the displacement chain, which applies none. The
 two campaigns focused from raw say the same: *i*→*i*+1..3 on `20170827`
 gives 3997 triangles at 0.995 rad closure rms, 0.994 after the fit;
 `20170713_full` gives 805 at 0.975 → 0.962 rad (a 1 % reduction), and
@@ -1266,13 +1082,12 @@ The same texture that fixes the heading also says whether it stayed fixed.
 `gpri coregister` (`gpri_tools.coregister`) cross-correlates the high-passed dB
 intensity of every SLC against the last one along azimuth, with a parabolic
 refinement of the peak, and reports each SLC's offset in lines. The
-measurement resolves a few thousandths of a degree, and what it sees in the
-2017 campaigns is the mount breathing with the sun: `20170713_full` turns
-0.08° (0.4 lines) clockwise through the night and snaps back within an hour
-of sunrise (14–15 UTC), `20170827` swings 0.03° anticlockwise each afternoon
-and `20170913` steps 0.015° at sunrise, none of them ever a full line from
-its reference (`03_coregister_20170713_full.png`, `_20170827.png`,
-`_20170913.png`). **The
+measurement resolves a few thousandths of a degree. In the 2017 campaigns:
+`20170713_full` turns 0.08° (0.4 lines) clockwise through the night and
+returns within an hour of sunrise (14–15 UTC), `20170827` swings 0.03°
+anticlockwise each afternoon and `20170913` steps 0.015° at sunrise, none
+of them ever a full line from its reference
+(`03_coregister_20170713_full.png`, `_20170827.png`, `_20170913.png`). **The
 2018 mount turned 5.1° anticlockwise (25.6 lines) over the first 4.8 h of the
 campaign, about 1°/h, and then held for the remaining 2.1 h**
 (match correlation 0.73–0.77 throughout, so the scene did not change — the
@@ -1298,13 +1113,11 @@ sidecars of the 2017 campaigns are applied the same way; at a tenth of a
 line the ramp zeroes nothing and costs nothing, and the grid is honest to
 the hundredth of a degree.
 
-The two campaigns recovered later say the 2018 mount was not an accident of
-that one day: `20180808` turns 2.33° (11.7 lines) and `20190719` 4.47°
-(22.4 lines), and both do it inside the first six hours after set-up and
-then hold — to 0.02° over the remaining 35 h and 0.06° over the remaining
-40 h respectively. A tripod on this glacier settles by degrees and then
-stops; `20180709` only looks like the outlier because its whole campaign was
-6.9 h long, so the settling *was* the campaign.
+The two campaigns recovered later show the same pattern: `20180808` turns
+2.33° (11.7 lines) and `20190719` 4.47° (22.4 lines), both inside the first
+six hours after set-up, and then hold — to 0.02° over the remaining 35 h
+and 0.06° over the remaining 40 h respectively. `20180709`'s whole campaign
+was 6.9 h long, so its record is the settling alone.
 
 ## The data as GAMMA left it
 

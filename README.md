@@ -94,16 +94,16 @@ matrix rather than reading each pair independently:
 ## The worked example: Mount Baker
 
 Everything under `examples/` is one analysis: eight GPRI-II campaigns on the
-north side of Mount Baker, 2016 to 2019, asking whether those glaciers carry a
-diurnal signal from the subglacial drainage system. It is what every
-capability above was built for, and it is the only example in this repository.
+north side of Mount Baker, 2016 to 2019, looking for a sub-daily signal in
+line-of-sight displacement over those glaciers. It is what every capability
+above was built for, and it is the only example in this repository.
 
-- [`docs/baker.md`](docs/baker.md) — the analysis and what it found: the
-  atmospheric ladder scored on held-out bedrock, the RGI reference audit, the
-  per-pixel diurnal null, the population night-time trough, three two-cycle
-  campaigns, whether the diurnal repeats from one year to the next, the
-  weather beside the radar, which ice carries the waveform, and the
-  surface's brightness read as a melt gauge.
+- [`docs/baker.md`](docs/baker.md) — the analysis, as methods, tables and
+  figures: the atmospheric ladder scored on held-out bedrock, the RGI
+  reference audit, the pair-domain diurnal fits, the population series and
+  hour-of-day composites of three two-cycle campaigns, the weather beside the
+  radar, the waveform share per pixel, and the surface's brightness per pixel
+  and per catchment.
 - [`docs/campaigns.md`](docs/campaigns.md) — the campaign inventory, the
   measured scan headings and the per-campaign processing notes.
 - [`docs/atmosphere.md`](docs/atmosphere.md) — the correction ladder in full.
@@ -212,8 +212,8 @@ python examples/baker_stratification.py --scene 20170803_full
 python examples/baker_lag.py --scenes 20170803_full 20180808 20190719
 python examples/baker_weather_plots.py --scenes 20170803_full 20180808 20190719
 for s in $CAMPAIGNS; do python examples/baker_pixels.py --scene $s; done
-# the surface's brightness as a melt gauge: the per-pixel tables, per campaign
-# and side by side, and every epoch's raw backscatter kept on disk
+# the surface's brightness per pixel: the tables, per campaign and side by
+# side, and every epoch's raw backscatter kept on disk
 for s in $CAMPAIGNS; do python examples/baker_melt.py --scene $s; done
 python examples/baker_melt.py --campaigns $CAMPAIGNS
 # the figures of that brightness: the radar image through the day as a grey-scale

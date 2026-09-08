@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Displacement and LOS velocity against the temperature that drove them.
+"""Displacement and LOS velocity against the air temperature beside the radar.
 
     python examples/baker_weather_plots.py --scenes 20170803_full 20180808 20190719
 
@@ -10,15 +10,13 @@ Three panels per campaign, all on the radar's own clock:
 2. **LOS velocity** against temperature, colour-coded by hour of day;
 3. **displacement anomaly** against temperature, the same way.
 
-The scatter panels are the point.  A response with no memory — refractivity
-tracking the state of the air — plots as a line: the same temperature gives the
-same reading whether the air is warming or cooling.  A response with a delay
-plots as a **loop**, because the afternoon and the small hours pass through the
-same temperature with the glacier in two different states, and the loop's width
-is the lag.  Which way the loop is traversed says which quantity leads.
+In the scatter panels a response with no memory plots as a line — the same
+temperature gives the same reading whether the air is warming or cooling — and
+a response with a delay plots as a **loop** whose width is the lag; which way
+the loop is traversed says which quantity leads.
 
-Held-out bedrock is drawn behind the ice in grey at the same scale.  It does
-not move, so whatever shape it has is the measurement's own.
+Held-out bedrock is drawn behind the ice in grey at the same scale, as the
+control.
 """
 from __future__ import annotations
 

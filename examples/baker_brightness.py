@@ -7,8 +7,8 @@ Two products per campaign, one panel each, both on the UTC clock:
 
 * ``26_db_movie_<scene>.mp4`` — the radar image itself, every epoch,
   geocoded: backscatter in dB from black to white on a grey scale fixed
-  over the record, so the glacier going dark by day and bright by night is
-  watched directly, and bedrock is in the frame as the control.
+  over the record, so the glacier's brightness through the day is watched
+  directly, and bedrock is in the frame as the control.
 * ``26_db_series_<scene>.png`` — one line: the mean backscatter over the
   coherent ice (mean coherence >= 0.5) in the glacier outline against time,
   with the local night (00-06) shaded.
