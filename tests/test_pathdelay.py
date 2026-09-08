@@ -7,8 +7,10 @@ import pytest
 from gpri_tools.network import Network
 from gpri_tools.pathdelay import (DoubleDifference, PathDelay, discarded_rate,
                                   double_difference, frequency_response,
-                                  invert_path_delay, pin_affine, pin_rate,
-                                  select_lambda, shared_epoch_triplets, tikhonov)
+                                  invert_path_delay, lambda_for_response,
+                                  lambda_for_system_response, pin_affine,
+                                  pin_rate, select_lambda, shared_epoch_triplets,
+                                  system_response, tikhonov)
 
 CADENCE = 4.0 / (60.0 * 24.0)          # four minutes, in days
 
@@ -464,3 +466,83 @@ def test_pin_rate_handles_a_stack_of_pixels():
     pinned = pin_rate(a, net.times, net.pairs)
     assert pinned.shape == a.shape
     assert np.allclose(discarded_rate(pinned, net.times, net.pairs), 0.0, atol=1e-9)
+
+
+# ------------------------------------------- keeping the correction off a band
+def test_lambda_for_response_hits_the_response_it_promises():
+    for period in (1.0, 0.5, 1 / 6):
+        for rho in (0.5, 0.01, 1e-4):
+            lam = lambda_for_response(period, CADENCE, rho)
+            assert frequency_response(period, CADENCE, lam) == pytest.approx(rho)
+
+
+def test_protecting_a_slow_period_is_cheap_at_fast_ones():
+    lam = lambda_for_response(1.0, CADENCE, 0.01)
+    assert frequency_response(1 / 12, CADENCE, lam) > 0.99      # 2 h
+    assert frequency_response(1 / 144, CADENCE, lam) > 0.999    # 10 min
+    assert frequency_response(0.5, CADENCE, lam) < 0.2          # 12 h is not free
+
+
+def test_bad_response_targets_are_refused():
+    for rho in (0.0, -0.1, 1.5):
+        with pytest.raises(ValueError, match="max_response"):
+            lambda_for_response(1.0, CADENCE, rho)
+
+
+def test_protect_period_raises_lambda_but_never_lowers_it():
+    rng = np.random.default_rng(71)
+    net = _chain(n_epochs=60, lags=(1, 2))
+    obs = _observe(net, rng.normal(0, 2.0, net.n_epochs), rate=11.0)
+
+    free = invert_path_delay(obs, net.pairs, net.times)
+    kept = invert_path_delay(obs, net.pairs, net.times, protect_period=1.0)
+    assert kept.lam >= free.lam
+    assert system_response(kept.system.A, net.times, 1.0, kept.lam) <= 0.0101
+
+    # a lam already above the floor is left alone
+    huge = invert_path_delay(obs, net.pairs, net.times, lam=1e9, protect_period=1.0)
+    assert huge.lam == 1e9
+
+
+def test_protecting_the_diurnal_leaves_a_diurnal_delay_in_place():
+    """The correction must not take out what it was told to protect."""
+    rng = np.random.default_rng(73)
+    net = _chain(n_epochs=400, lags=(1, 2))          # 400 x 4 min = 26.7 h
+    t = net.times
+    diurnal = 6.0 * np.sin(2 * np.pi * t / 1.0)
+    fast = rng.normal(0, 1.0, net.n_epochs)
+    obs = _observe(net, diurnal + fast, rate=15.0)
+
+    kept = invert_path_delay(obs, net.pairs, net.times, protect_period=1.0,
+                             pin="rate")
+    left = obs - kept.pair_delay()
+    # what the correction removed, projected back onto the diurnal it protected
+    removed = kept.delay
+    w = 2 * np.pi
+    G = np.column_stack([np.ones_like(t), t, np.cos(w * t), np.sin(w * t)])
+    c, *_ = np.linalg.lstsq(G, removed, rcond=None)
+    assert 2 * np.hypot(c[2], c[3]) < 0.05 * 2 * 6.0     # under a twentieth
+    # and it still took the fast part out
+    assert np.std(left) < np.std(obs)
+
+
+def test_system_response_exceeds_the_single_baseline_formula():
+    """Why the floor is measured on A: mixed baselines let more through."""
+    net = _chain(n_epochs=200, lags=(1, 2, 3))
+    A = double_difference(net.pairs, net.times).A
+    lam = lambda_for_response(1.0, CADENCE, 0.01)         # the closed form
+    assert system_response(A, net.times, 1.0, lam) > 0.01
+
+
+def test_lambda_for_system_response_is_the_smallest_that_works():
+    net = _chain(n_epochs=200, lags=(1, 2))
+    A = double_difference(net.pairs, net.times).A
+    lam = lambda_for_system_response(A, net.times, 1.0, 0.01)
+    assert system_response(A, net.times, 1.0, lam) <= 0.0101
+    assert system_response(A, net.times, 1.0, lam / 2.0) > 0.01
+
+
+def test_no_regularisation_is_needed_when_the_target_is_already_met():
+    net = _chain(n_epochs=30, lags=(1,))
+    A = double_difference(net.pairs, net.times).A
+    assert lambda_for_system_response(A, net.times, 1.0, 1.0) == 0.0

@@ -74,14 +74,16 @@ from gpri_tools.glaciers import glacier_mask, load_outlines, stable_ground_mask 
 from gpri_tools.heading import scene_heading                               # noqa: E402
 from gpri_tools.pathdelay import (discarded_rate, double_difference,       # noqa: E402
                                   frequency_response, invert_path_delay,
-                                  pin_rate, select_lambda)
+                                  lambda_for_system_response, pin_rate,
+                                  select_lambda, system_response)
 from gpri_tools.refractivity import specific_humidity                      # noqa: E402
 from gpri_tools.timeseries import los_displacement                         # noqa: E402
 
-PATHDELAY_CACHE_VERSION = 2
+PATHDELAY_CACHE_VERSION = 3
 
 #: flags that change what the cached numbers answer
-CACHE_ARGS = ("ice_coherence", "stable_coherence", "sigma", "lags")
+CACHE_ARGS = ("ice_coherence", "stable_coherence", "sigma", "lags",
+              "protect_period", "max_response")
 
 ESTIMATORS = ("scene", "pixel", "smooth")
 MASKS = ("fit rock", "held rock", "ice")
@@ -192,8 +194,17 @@ def compute(scene, name, args):
         lam, _ = select_lambda(system.A, system.apply(scene_series), method="gcv")
     else:
         lam = float(args.lam)
-    print(f"lambda {lam:.4g} (response {frequency_response(1 / 24, np.median(np.diff(times)), lam):.3f} "
-          f"at 1 h, {frequency_response(1.0, np.median(np.diff(times)), lam):.2e} at 24 h)")
+    if args.protect_period:
+        floor = lambda_for_system_response(system.A, times, args.protect_period,
+                                           args.max_response)
+        if floor > lam:
+            print(f"lambda {lam:.4g} from GCV raised to {floor:.4g} to hold "
+                  f"{args.protect_period * 24:.0f} h at {args.max_response:.1%}")
+        lam = max(lam, floor)
+    print(f"lambda {lam:.4g}; the system returns "
+          + ", ".join(f"{system_response(system.A, times, T, lam):.3f} at {lab}"
+                      for T, lab in ((1 / 144, "10 min"), (1 / 24, "1 h"),
+                                     (1 / 12, "2 h"), (0.5, "12 h"), (1.0, "24 h"))))
 
     loose = invert_path_delay(scene_series, pairs, times, lam=lam)
     trend = float(discarded_rate(loose.delay, times, pairs))
@@ -349,6 +360,12 @@ def main():
                          "reading the stack again")
     ap.add_argument("--lam", type=float, default=None,
                     help="Tikhonov weight; chosen by GCV when omitted")
+    ap.add_argument("--protect-period", type=float, default=1.0,
+                    help="period (days) the correction must leave alone; the "
+                         "weight is raised until the system returns no more "
+                         "than --max-response of it. 0 disables the floor")
+    ap.add_argument("--max-response", type=float, default=0.01,
+                    help="how much of --protect-period may come through")
     ap.add_argument("--sigma", type=float, nargs=2, default=(5.0, 25.0),
                     help="Gaussian sigma (azimuth, range) of the smooth estimator")
     ap.add_argument("--ice-coherence", type=float, default=0.5)

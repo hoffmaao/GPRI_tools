@@ -78,8 +78,9 @@ import numpy as np
 
 __all__ = [
     "DoubleDifference", "PathDelay", "discarded_rate", "double_difference",
-    "frequency_response", "invert_path_delay", "pin_affine", "pin_rate",
-    "select_lambda", "shared_epoch_triplets", "tikhonov",
+    "frequency_response", "invert_path_delay", "lambda_for_response",
+    "lambda_for_system_response", "pin_affine", "pin_rate", "select_lambda",
+    "shared_epoch_triplets", "system_response", "tikhonov",
 ]
 
 #: Rows whose observation is non-finite in any pixel are dropped by default.
@@ -478,10 +479,94 @@ def frequency_response(period, spacing, lam=0.0):
     return g ** 2 / (g ** 2 + float(lam))
 
 
+def lambda_for_response(period, spacing, max_response=0.01):
+    """The smallest ``lam`` whose response at ``period`` is at most that.
+
+    Inverts :func:`frequency_response`: with ``g = 4 sin^2(pi dt / T) / dt``
+    the solve returns ``g^2 / (g^2 + lam)`` of a component, so
+
+        lam = g^2 (1 - rho) / rho
+
+    is the weight that holds it to ``rho``.  This is how to keep the
+    correction off a signal you mean to measure rather than hoping the
+    cross-validated weight lands somewhere harmless — on the Baker
+    campaigns the GCV weight spans three orders of magnitude, and with it
+    the attenuation of a diurnal ranges from nothing to a quarter.
+
+    Because ``g`` falls as ``1 / T^2``, protecting a slow component costs
+    almost nothing fast: at a two-minute cadence, holding 24 h to 1 % still
+    returns 99.5 % at 2 h and 100 % at 10 minutes.  The period to think
+    about is the semidiurnal one, which keeps only 14 %.
+
+    >>> lam = lambda_for_response(1.0, 2.0 / 1440)
+    >>> round(float(frequency_response(1.0, 2.0 / 1440, lam)), 4)
+    0.01
+    >>> round(float(frequency_response(1 / 12, 2.0 / 1440, lam)), 4)
+    0.9952
+    """
+    rho = float(max_response)
+    if not 0.0 < rho <= 1.0:
+        raise ValueError("max_response must be in (0, 1]")
+    dt = float(spacing)
+    g = 4.0 * np.sin(np.pi * dt / np.asarray(period, float)) ** 2 / dt
+    return g ** 2 * (1.0 - rho) / rho
+
+
+def system_response(A, times, period, lam):
+    """Gain the regularised solve applies at ``period``, for *this* ``A``.
+
+    :func:`frequency_response` is the closed form for one equally spaced
+    triplet; a real stack mixes temporal baselines, and the longer ones are
+    more sensitive at long periods, so the closed form understates what gets
+    through.  This measures it on the operator actually being inverted:
+    ``M A`` is ``V diag(s^2 / (s^2 + lam)) V^T``, and this returns the largest
+    gain that filter applies to any phase of a harmonic of ``period``.
+    """
+    t = np.asarray(times, float)
+    w = 2.0 * np.pi / float(period)
+    H = np.column_stack([np.cos(w * t), np.sin(w * t)])
+    H = H / np.linalg.norm(H, axis=0)
+    _, s, Vt = np.linalg.svd(np.asarray(A, float), full_matrices=False)
+    f = s ** 2 / (s ** 2 + float(lam))
+    return float(np.linalg.norm(Vt.T @ (f[:, None] * (Vt @ H)), axis=0).max())
+
+
+def lambda_for_system_response(A, times, period, max_response=0.01,
+                               lo=None, hi=None, tol=1e-3):
+    """Smallest ``lam`` holding :func:`system_response` at or under the target.
+
+    Bisects on ``log lam``; the response is monotone decreasing in ``lam``, so
+    the bracket only has to be wide enough.  Returns ``0.0`` when even an
+    unregularised solve already meets the target.
+    """
+    rho = float(max_response)
+    if not 0.0 < rho <= 1.0:
+        raise ValueError("max_response must be in (0, 1]")
+    A = np.asarray(A, float)
+    if system_response(A, times, period, 0.0) <= rho:
+        return 0.0
+    spacing = float(np.median(np.abs(np.diff(np.sort(np.asarray(times, float))))))
+    lo = float(lo if lo is not None else 1e-12)
+    hi = float(hi if hi is not None else
+               max(lambda_for_response(period, spacing, rho), 1.0) * 1e6)
+    while system_response(A, times, period, hi) > rho:
+        hi *= 100.0
+        if hi > 1e30:                                  # pragma: no cover
+            raise RuntimeError("no lam holds the response; check the period")
+    while hi / max(lo, 1e-300) > 1.0 + tol:
+        mid = np.sqrt(lo * hi) if lo > 0 else hi / 10.0
+        if system_response(A, times, period, mid) > rho:
+            lo = mid
+        else:
+            hi = mid
+    return hi
+
+
 def invert_path_delay(observations, pairs, times, lam=None, max_span=None,
                       max_triplets=None, normalise=True, weights=None,
                       pin="affine", nan_policy="drop", chunk=200_000,
-                      lambda_method="gcv"):
+                      lambda_method="gcv", protect_period=None,
+                      max_response=0.01):
     """Per-epoch path delay from a stack of pair observations.
 
     Parameters
@@ -498,6 +583,12 @@ def invert_path_delay(observations, pairs, times, lam=None, max_span=None,
     lam : float, optional
         Regularisation weight.  Chosen by :func:`select_lambda` on the spatial
         mean series when omitted.
+    protect_period : float, optional
+        A period, in the units of ``times``, the correction must leave alone:
+        ``lam`` is raised until :func:`system_response` of the operator
+        actually being inverted is at most ``max_response`` there.  Pass
+        ``1.0`` (a day) to keep the correction off a diurnal signal; it still
+        returns essentially everything at an hour or less.
     weights : (n_rows,) or (n_pairs,) array, optional
         Row confidence.  A per-pair vector is turned into a per-row one by
         taking the smaller of the two pairs' weights.
@@ -559,6 +650,9 @@ def invert_path_delay(observations, pairs, times, lam=None, max_span=None,
     if lam is None:
         mean = B.reshape(B.shape[0], -1).mean(axis=1)
         lam, _ = select_lambda(A, mean, method=lambda_method)
+    if protect_period is not None:
+        lam = max(float(lam), float(lambda_for_system_response(
+            A, t, protect_period, max_response)))
 
     delay = tikhonov(A, B, lam, chunk=chunk)
     resid = B - np.tensordot(A, delay, axes=(1, 0))
