@@ -118,42 +118,50 @@ smoothed delay field at one epoch. Bottom right, the response of the
 inversion against period, with one hour and one day marked. Local night
 (00–06) is shaded.*
 
-## Several temporal baselines, not just the chain
+## Several temporal baselines — and why they add nothing at single look
 
-The method is built on triplets, and a daisy chain of consecutive pairs
-supplies only the shortest of them. Forming interferograms at lags 1, 2 and
-3 as well gives triplets at three spacings — the `(1, -2, 1)`,
-`(1, 0, -2, 0, 1)` and `(1, 0, 0, -2, 0, 0, 1)` rows — each an independent
-measurement rather than a combination of the others. `--lags 1 2 3` does it;
-the cost is reading the stack again (~1.4 s per pair, so half an hour for a
-437-epoch campaign and about six gigabytes of cache).
+The method is built on triplets, and a daisy chain supplies only the shortest
+of them. Forming interferograms at lags 1, 2 and 3 as well gives the
+`(1, -2, 1)`, `(1, 0, -2, 0, 1)` and `(1, 0, 0, -2, 0, 0, 1)` rows, and
+`--lags 1 2 3` does it. On `20170913` that turns 435 double differences into
+3,897 for the same 437 unknowns.
 
-On `20170913` that turns 435 double differences into 3,897 for the same 437
-unknowns:
+**It buys no information here.** At single look an interferogram is
+`s_i conj(s_j)` formed from the same SLCs, so
+`arg(s_i conj(s_k)) = arg(s_i conj(s_j)) + arg(s_j conj(s_k))` identically:
+the long-baseline phases are algebraic combinations of the chain, not
+independent measurements. Measured on `20170803_full` with `looks=(1, 1)`,
+the closure phase over 2,161 triangles is **exactly zero** — rms 0.0000 rad.
+Counting rows therefore overstates the constraint: the extra rows are
+perfectly dependent on the ones already there, and any noise calculation
+that assumes one variance per row (including the naive `pinv` noise gain,
+which falls from 0.619 to 0.099 across the two systems) is measuring the
+design matrix rather than the data.
 
-| | lag 1 | lags 1+2+3 |
-|---|---:|---:|
-| double differences | 435 | 3,897 |
-| noise propagated into the delay | 0.619 | **0.099** |
-| delay recovered, rms / peak to peak | 0.340 / 2.11 mm | 0.438 / 2.65 mm |
-| held-out bedrock scatter removed, `scene` | 56.5 % | 55.3 % |
-| `pixel` self-fitting on held-out bedrock | 89.8 % | **46.1 %** |
+What does change is the regularisation. The weight floor is computed on the
+operator it is given, and the longer baselines are more sensitive at long
+periods, so holding 24 h to 1 % takes `lam` from 1.92 to 75.0. The apparent
+improvement in the `pixel` control — 89.8 % of held-out bedrock scatter
+"removed" with the chain, 46.1 % with three lags — is that heavier
+regularisation suppressing the overfitting, not extra observations
+constraining it.
 
-The two delay series agree at r = +0.92 with an rms difference of 0.18 mm,
-so this is the same signal measured better: six times less noise into the
-estimate, and more delay recovered, the chain-only version having been
-noise-limited and shrunk by its own regularisation.
+**Independent baselines need multilooking**, which is the regime where the
+short-baseline closure bias of De Zan et al. and Zheng et al. appears and
+where `gpri_tools.closure` earns its place. `examples/baker_closure.py` reads
+its stack at `--looks 3 15` for exactly that reason. Anyone extending this to
+real multi-baseline data should estimate and remove that bias before forming
+the double differences.
 
-The number that matters is the last row. With one observation per unknown a
-per-pixel solve fits its own noise, which is why the `pixel` control removes
-90 % of the scatter from bedrock it has never otherwise seen. Nine
-observations per unknown halves that, and it is the only change here that
-makes the per-pixel field worth anything.
-
-The regularisation floor rises with the extra baselines — 1.92 to 75.0 on
-`20170913` — because longer baselines are more sensitive at long periods and
-so let more of a diurnal through for the same weight. That is
-`lambda_for_system_response` measuring the operator it is actually given.
+**One trap when mixing baselines.** A long-baseline pair read at single look
+is wrapped into a half wavelength, while the chain that spans it is a sum of
+wrapped steps and is not. Where the motion over the longer span exceeds
+lambda/4 the two disagree by a half wavelength, 8.7 mm here. On
+`20170803_full` that happens at about 3 % of pixels and shows up as an
+apparent 0.28 mm of non-closure in the displacement domain, which is enough
+to make the inversion invent a delay field of 0.52 mm over bedrock and
+degrade the held-out control by 283 %. Form the residual in the phase domain
+with `timeseries.wrap`, not by differencing displacements.
 
 ## Keeping it off the signal you mean to measure
 
