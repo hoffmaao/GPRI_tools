@@ -225,8 +225,11 @@ python examples/baker_melt.py --campaigns $CAMPAIGNS
 for s in $CAMPAIGNS; do python examples/baker_brightness.py --scene $s; done
 for s in $CAMPAIGNS; do python examples/baker_catchments.py --scene $s; done
 # the atmosphere separated in time instead of space: one path delay per
-# acquisition from double-differenced pairs, scored on held-out bedrock
-for s in $CAMPAIGNS; do python examples/baker_pathdelay.py --scene $s; done
+# acquisition from double-differenced pairs, scored on held-out bedrock.
+# --lags 1 2 3 forms the triplets at three temporal baselines, which is what
+# the method is built for: nine observations per unknown instead of one, and
+# six times less noise in the delay -- at the cost of reading the stack again
+for s in $CAMPAIGNS; do python examples/baker_pathdelay.py --scene $s --lags 1 2 3; done
 ```
 
 `bin/run_scene.sh <scene> [upper|lower|both]` runs the deformation chain for

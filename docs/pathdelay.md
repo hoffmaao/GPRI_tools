@@ -118,6 +118,43 @@ smoothed delay field at one epoch. Bottom right, the response of the
 inversion against period, with one hour and one day marked. Local night
 (00–06) is shaded.*
 
+## Several temporal baselines, not just the chain
+
+The method is built on triplets, and a daisy chain of consecutive pairs
+supplies only the shortest of them. Forming interferograms at lags 1, 2 and
+3 as well gives triplets at three spacings — the `(1, -2, 1)`,
+`(1, 0, -2, 0, 1)` and `(1, 0, 0, -2, 0, 0, 1)` rows — each an independent
+measurement rather than a combination of the others. `--lags 1 2 3` does it;
+the cost is reading the stack again (~1.4 s per pair, so half an hour for a
+437-epoch campaign and about six gigabytes of cache).
+
+On `20170913` that turns 435 double differences into 3,897 for the same 437
+unknowns:
+
+| | lag 1 | lags 1+2+3 |
+|---|---:|---:|
+| double differences | 435 | 3,897 |
+| noise propagated into the delay | 0.619 | **0.099** |
+| delay recovered, rms / peak to peak | 0.340 / 2.11 mm | 0.438 / 2.65 mm |
+| held-out bedrock scatter removed, `scene` | 56.5 % | 55.3 % |
+| `pixel` self-fitting on held-out bedrock | 89.8 % | **46.1 %** |
+
+The two delay series agree at r = +0.92 with an rms difference of 0.18 mm,
+so this is the same signal measured better: six times less noise into the
+estimate, and more delay recovered, the chain-only version having been
+noise-limited and shrunk by its own regularisation.
+
+The number that matters is the last row. With one observation per unknown a
+per-pixel solve fits its own noise, which is why the `pixel` control removes
+90 % of the scatter from bedrock it has never otherwise seen. Nine
+observations per unknown halves that, and it is the only change here that
+makes the per-pixel field worth anything.
+
+The regularisation floor rises with the extra baselines — 1.92 to 75.0 on
+`20170913` — because longer baselines are more sensitive at long periods and
+so let more of a diurnal through for the same weight. That is
+`lambda_for_system_response` measuring the operator it is actually given.
+
 ## Keeping it off the signal you mean to measure
 
 The cross-validated weight is not safe by default. Across the six campaigns
