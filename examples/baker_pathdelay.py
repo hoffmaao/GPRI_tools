@@ -68,6 +68,7 @@ from baker_aps import SCENES, load, split_mask                       # noqa: E40
 from baker_brightness import shade_local_nights, utc_epochs           # noqa: E402
 from baker_north_side import decimated_par                           # noqa: E402
 
+from gpri_tools.closure import closure_rms, correct_bias, estimate_bias   # noqa: E402
 from gpri_tools.diurnal import m_per_yr                                   # noqa: E402
 from gpri_tools.geocode import BAKERBEND1_HEADING, RadarGeometry           # noqa: E402
 from gpri_tools.glaciers import glacier_mask, load_outlines, stable_ground_mask  # noqa: E402
@@ -82,21 +83,28 @@ from gpri_tools.timeseries import los_displacement                         # noq
 PATHDELAY_CACHE_VERSION = 3
 
 #: flags that change what the cached numbers answer
-CACHE_ARGS = ("ice_coherence", "stable_coherence", "sigma", "lags",
-              "protect_period", "max_response")
+CACHE_ARGS = ("ice_coherence", "stable_coherence", "sigma", "lags", "looks",
+              "protect_period", "max_response", "debias")
 
 ESTIMATORS = ("scene", "pixel", "smooth")
 MASKS = ("fit rock", "held rock", "ice")
 
 
-def pathdelay_path(scene: Path, antenna: str, dec: int) -> Path:
+def pathdelay_path(scene: Path, antenna: str, dec: int, looks=(1, 1),
+                   debias=False) -> Path:
+    """Where one run is cached.  Multilooked and de-biased runs sit beside the
+    single-look one, because they are answers to a different question."""
     root = Path(os.environ.get("GPRI_WORK_ROOT", "work"))
-    return root / scene.name / f"pathdelay_{antenna[0].lower()}_dec{dec}.npz"
+    la, lr = (int(looks[0]), int(looks[1]))
+    tag = "" if (la, lr) == (1, 1) else f"_lk{la}x{lr}"
+    tag += "_db" if debias else ""
+    return root / scene.name / f"pathdelay_{antenna[0].lower()}_dec{dec}{tag}.npz"
 
 
 def load_pathdelay(scene: Path, args):
     """The cached run, or ``(None, reason)`` when it answers another question."""
-    cache = pathdelay_path(scene, args.antenna, args.decimate)
+    cache = pathdelay_path(scene, args.antenna, args.decimate,
+                           args.looks, args.debias)
     if not cache.exists():
         return None, "no cache"
     c = dict(np.load(cache, allow_pickle=False))
@@ -174,11 +182,30 @@ def humidity_at_epochs(name):
 def compute(scene, name, args):
     stack, net, phase, cc, r, az, n = load(scene, args.decimate, 0,
                                            antenna=args.antenna,
-                                           lags=tuple(int(l) for l in args.lags))
+                                           lags=tuple(int(l) for l in args.lags),
+                                           looks=tuple(int(l) for l in args.looks))
     mean_cc = cc.mean(axis=0)
     del cc
     masks = masks_for(scene, stack, mean_cc, args)
     print("pixels: " + ", ".join(f"{k} {v.sum():,}" for k, v in masks.items()))
+
+    if args.debias:
+        # Multilooking makes each baseline a distinct estimate, and with it the
+        # short-baseline bias of De Zan et al. -- which is not epoch-separable
+        # and so cannot be written as a per-epoch delay.  It has to come off
+        # before the double differences, or the inversion explains it with
+        # delays it has invented.
+        net.pairs = np.asarray(net.pairs[:n], int)
+        t0 = time.time()
+        before = float(np.nanmean(closure_rms(phase, net)))
+        model = estimate_bias(phase, net, robust=2, wavelength=stack.wavelength)
+        phase = correct_bias(phase, model)
+        after = float(np.nanmean(closure_rms(phase, net)))
+        print(f"closure bias: rms {before:.4f} -> {after:.4f} rad over "
+              f"{model.n_triplets:,} triangles in {time.time() - t0:.0f} s; "
+              f"bias {np.nanmin(model.bias) * 1e3:.2f} to "
+              f"{np.nanmax(model.bias) * 1e3:.2f} mrad over "
+              f"{len(model.centers)} baseline bins")
 
     d = (los_displacement(phase, stack.wavelength) * 1000.0).astype(np.float32)
     del phase
@@ -341,7 +368,10 @@ def figure(c, name, args):
     ax.grid(alpha=0.3)
 
     fig.tight_layout()
-    out = args.outdir / f"28_pathdelay_{name}.png"
+    la, lr = (int(args.looks[0]), int(args.looks[1]))
+    tag = "" if (la, lr) == (1, 1) else f"_lk{la}x{lr}"
+    tag += "_db" if args.debias else ""
+    out = args.outdir / f"28_pathdelay_{name}{tag}.png"
     fig.savefig(out)
     plt.close(fig)
     print(f"wrote {out}")
@@ -354,6 +384,15 @@ def main():
                     help="campaign key from site.env, or a directory")
     ap.add_argument("--antenna", default="upper", choices=("upper", "lower"))
     ap.add_argument("--decimate", type=int, default=16)
+    ap.add_argument("--looks", type=int, nargs=2, default=(1, 1),
+                    help="azimuth and range looks. Multilooking is what makes "
+                         "the longer baselines independent measurements; at "
+                         "single look they close with the chain exactly and "
+                         "add nothing. Drop --decimate when using it")
+    ap.add_argument("--debias", action="store_true",
+                    help="estimate and remove the closure-phase bias before "
+                         "the double differences (gpri_tools.closure). Needs "
+                         "multilooked pairs to have anything to remove")
     ap.add_argument("--lags", type=int, nargs="+", default=[1],
                     help="temporal baselines to form pairs over; more than one "
                          "carries less noise into the delay, at the cost of "
@@ -383,9 +422,11 @@ def main():
 
     c, why = (None, "recompute") if args.recompute else load_pathdelay(scene, args)
     if c is None:
-        print(f"{pathdelay_path(scene, args.antenna, args.decimate)}: {why}; computing")
+        print(f"{pathdelay_path(scene, args.antenna, args.decimate, args.looks, args.debias)}"
+              f": {why}; computing")
         c = compute(scene, name, args)
-        cache = pathdelay_path(scene, args.antenna, args.decimate)
+        cache = pathdelay_path(scene, args.antenna, args.decimate,
+                               args.looks, args.debias)
         cache.parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(cache, **c)
         print(f"cached {cache}")

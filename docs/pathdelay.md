@@ -163,6 +163,60 @@ to make the inversion invent a delay field of 0.52 mm over bedrock and
 degrade the held-out control by 283 %. Form the residual in the phase domain
 with `timeseries.wrap`, not by differencing displacements.
 
+## The pipeline that makes the baselines real
+
+Multilook, de-bias, double-difference over several baselines, invert with the
+diurnal protected:
+
+```bash
+python examples/baker_pathdelay.py --scene 20170913 \
+       --lags 1 2 3 --looks 3 15 --decimate 1 --debias
+```
+
+`--decimate` is range-only here, so it comes off when `--looks` goes on;
+3 x 15 looks turn a 446 x 22,096 single-look frame into 148 x 1,473.
+
+**Multilooking is what makes the extra baselines independent**, and it is
+measurable: the closure phase over 1,303 triangles goes from exactly 0.0000
+rad at single look to non-zero once the pairs are looked. The reading has to
+be taken where the analysis looks, though — over the whole frame the closure
+rms is 1.4878 rad, which is incoherent ground sitting near the 1.81 rad of
+uniformly random phase. Restricted to pixels the analysis trusts:
+
+| mask | pixels | closure rms | mean closure |
+|---|---:|---:|---:|
+| whole frame | 218,004 | 1.4878 rad | 0.00014 rad |
+| stable ground | 7,408 | 0.4573 rad | 0.00037 rad |
+| coherent ice | 12,068 | 0.1329 rad | 0.00016 rad |
+| coherence > 0.8 | 16,145 | **0.0382 rad** | **0.00010 rad** |
+
+**The de-bias step is a no-op at these baselines, and should be.** On
+coherent pixels the systematic closure is 0.0001 rad — 0.0001 mm — so
+`closure.estimate_bias` finds nothing to remove (frame closure rms 1.4878 ->
+1.4858) and the scores with and without `--debias` agree to three
+significant figures. The short-baseline bias of De Zan et al. and Zheng et
+al. is a change in the scattering medium, and the medium does not change in
+two to six minutes; `examples/baker_closure.py` reaches to lag 360, twelve
+hours, because that is where it lives. Keep the step for anyone extending
+this to long baselines, and expect it to do nothing at short ones.
+
+**What multilooking buys is in the spatially coherent field.** On
+`20170913`, scored on held-out bedrock that never fed the estimate:
+
+| estimator | single look, dec 16 | 3 x 15 looks, lags 1+2+3 |
+|---|---:|---:|
+| `scene` | 56.5 % | 56.2 % |
+| `pixel` (the self-fitting control) | 89.8 % | 55.0 % |
+| `smooth` | **2.9 %** | **10.8 %** |
+| `smooth`, on ice | 16.5 % | 31.3 % |
+
+The `scene` estimator is unmoved, because a per-epoch scalar was never
+noise-limited. The `pixel` control falls because 45 looks leave it much less
+of its own noise to fit. And the `smooth` estimator — the part neighbouring
+trusted pixels agree on, which is the only per-pixel number worth quoting —
+is nearly four times more effective than at single look. That is the
+correction finally doing on this data what the method is supposed to do.
+
 ## Keeping it off the signal you mean to measure
 
 The cross-validated weight is not safe by default. Across the six campaigns
