@@ -230,6 +230,11 @@ for s in $CAMPAIGNS; do python examples/baker_catchments.py --scene $s; done
 # that adds rows but no information -- the long-baseline phases close exactly
 # with the chain -- so the default stays at the chain alone; see docs/pathdelay.md
 for s in $CAMPAIGNS; do python examples/baker_pathdelay.py --scene $s; done
+# the air and the ice in one movie, two panels on one clock: the per-acquisition
+# path delay beside the deformation left after the ladder and that delay. Needs
+# multilooked pairs -- at single look the per-pixel delay field is mostly noise
+python examples/baker_delay_movie.py --scene 20170913 --lags 1 2 3 --looks 3 15 --decimate 1
+python examples/baker_delay_movie.py --scene 20170913 --refractivity   # the same as N-units
 ```
 
 `bin/run_scene.sh <scene> [upper|lower|both]` runs the deformation chain for

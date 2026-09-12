@@ -78,6 +78,7 @@ import numpy as np
 
 __all__ = [
     "DoubleDifference", "PathDelay", "discarded_rate", "displacement_delay_field",
+    "pair_delay_field",
     "double_difference", "frequency_response", "invert_path_delay",
     "lambda_for_response",
     "lambda_for_system_response", "pin_affine", "pin_rate", "select_lambda",
@@ -480,28 +481,30 @@ def frequency_response(period, spacing, lam=0.0):
     return g ** 2 / (g ** 2 + float(lam))
 
 
-def displacement_delay_field(displacement, pairs, times, mask, weights=None,
-                             sigma=(5.0, 25.0), lam=None, protect_period=1.0,
-                             max_response=0.01, chunk_rows=24, min_support=0.02):
-    """The path delay of a displacement cube, kept to where it is trusted.
+def pair_delay_field(observations, pairs, times, mask, weights=None,
+                     sigma=(5.0, 25.0), lam=None, protect_period=1.0,
+                     max_response=0.01, chunk_rows=24, min_support=0.02):
+    """Per-pixel path delay from measured pair observations, kept where trusted.
 
-    The pipeline this is for: run the spatial ladder, then hand its output
-    here to take out what is left that is fast and spatially coherent.  The
-    cube is re-differenced into pairs, inverted per pixel, and each epoch's
-    delay is passed through :func:`gpri_tools.aps.turbulence_screen` on
-    ``mask`` — so the answer is the part of the per-pixel field that
-    neighbouring trusted pixels agree on, not each pixel's own noise.  The
-    result is pinned with :func:`pin_rate`, so subtracting it cannot move a
-    rate.
+    Each pixel's series is inverted for a per-epoch delay, and each epoch's
+    field is then passed through :func:`gpri_tools.aps.turbulence_screen` on
+    ``mask`` — so the answer is the part neighbouring trusted pixels agree on,
+    not each pixel's own noise. The result is pinned with :func:`pin_rate`, so
+    subtracting it cannot move a rate.
+
+    Pass the **measured** observations, one per interferogram: at single look
+    the long baselines are algebraic combinations of the chain and add
+    nothing, but multilooked they are independent estimates and are most of
+    what makes the per-pixel field worth having.
 
     Parameters
     ----------
-    displacement : (n_epochs, ...) array
-        LOS displacement per epoch, in any consistent unit.
+    observations : (n_pairs, ...) array
+        LOS displacement per pair, ``d_j - d_i``, in any consistent unit.
     mask : bool array
-        Where the delay may be fitted — the coherent pixels.  Smoothing the
-        raw per-pixel field over the whole frame instead drags in delays
-        fitted on incoherent ground, which is worse than doing nothing.
+        Where the delay may be fitted — the coherent pixels. Smoothing the raw
+        per-pixel field over the whole frame instead drags in delays fitted on
+        incoherent ground, which is worse than doing nothing.
     weights : array, optional
         Per-pixel confidence for the fit; mean coherence is the intended one.
     protect_period : float, optional
@@ -511,17 +514,16 @@ def displacement_delay_field(displacement, pairs, times, mask, weights=None,
     Returns
     -------
     field : (n_epochs, ...) array
-        Subtract it from ``displacement``.
+        Subtract it from the per-epoch displacement.
     lam : float
     """
-    from .aps import turbulence_screen                # local: aps imports numpy only
+    from .aps import turbulence_screen
 
-    d = np.asarray(displacement, float)
+    obs = np.asarray(observations, float)
     pr = np.asarray(pairs, int).reshape(-1, 2)
     t = np.asarray(times, float)
     sysd = double_difference(pr, t)
 
-    obs = (d[pr[:, 1]] - d[pr[:, 0]])
     if lam is None:
         series = np.array([np.nanmean(x[mask]) for x in obs])
         lam, _ = select_lambda(sysd.A, sysd.apply(series), method="gcv")
@@ -538,7 +540,6 @@ def displacement_delay_field(displacement, pairs, times, mask, weights=None,
         b = sysd.apply(obs[:, s:e])
         x = np.tensordot(M, b.reshape(b.shape[0], -1), axes=(1, 0))
         cube[:, s:e] = pin_rate(x.reshape((A.shape[1],) + b.shape[1:]), t, pr)
-    del obs
 
     field = np.empty_like(cube)
     for k in range(cube.shape[0]):
@@ -547,6 +548,28 @@ def displacement_delay_field(displacement, pairs, times, mask, weights=None,
                                    min_support=min_support)
         field[k] = scr
     return pin_rate(field, t, pr), float(lam)
+
+
+def displacement_delay_field(displacement, pairs, times, mask, weights=None,
+                             sigma=(5.0, 25.0), lam=None, protect_period=1.0,
+                             max_response=0.01, chunk_rows=24, min_support=0.02):
+    """The path delay of a displacement cube — :func:`pair_delay_field` after
+    re-differencing the cube into the given pairs.
+
+    The pipeline this is for: run the spatial ladder, then hand its output
+    here to take out what is left that is fast and spatially coherent.  Note
+    that pairs re-differenced from a cube are not independent measurements,
+    so only the shortest baseline carries anything; hand
+    :func:`pair_delay_field` the measured multilooked pairs when there are
+    several baselines to exploit.
+    """
+    d = np.asarray(displacement, float)
+    pr = np.asarray(pairs, int).reshape(-1, 2)
+    return pair_delay_field(d[pr[:, 1]] - d[pr[:, 0]], pr, times, mask,
+                            weights=weights, sigma=sigma, lam=lam,
+                            protect_period=protect_period,
+                            max_response=max_response, chunk_rows=chunk_rows,
+                            min_support=min_support)
 
 
 def lambda_for_response(period, spacing, max_response=0.01):
