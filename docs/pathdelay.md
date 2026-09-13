@@ -153,15 +153,50 @@ its stack at `--looks 3 15` for exactly that reason. Anyone extending this to
 real multi-baseline data should estimate and remove that bias before forming
 the double differences.
 
-**One trap when mixing baselines.** A long-baseline pair read at single look
-is wrapped into a half wavelength, while the chain that spans it is a sum of
-wrapped steps and is not. Where the motion over the longer span exceeds
-lambda/4 the two disagree by a half wavelength, 8.7 mm here. On
-`20170803_full` that happens at about 3 % of pixels and shows up as an
-apparent 0.28 mm of non-closure in the displacement domain, which is enough
-to make the inversion invent a delay field of 0.52 mm over bedrock and
-degrade the held-out control by 283 %. Form the residual in the phase domain
-with `timeseries.wrap`, not by differencing displacements.
+**Mixing baselines wraps.** A pair unwrapped on its own is known modulo
+half a wavelength — 8.7 mm of line-of-sight displacement here — while the
+chain of shorter pairs spanning the same interval is a sum and carries no
+such bound. Measured at single look on `20170803_full` at lags 1, 2, 3
+(2,163 pairs, 723 epochs, dec 16), the two-epoch pairs sit a whole cycle
+from the chain on 10.9 % of the fit-rock, held-rock and ice samples alike
+(22.7 % of all finite pixels) and the three-epoch pairs on 16.6 % of the
+rock and 17.8 % of the ice (30.7 % of all), half of them each way; the
+per-pixel lag-2 closure — pair (i, i+2) minus its two chain steps, unwrapped
+and cycles included, where the wrapped closure above is exactly zero — has
+an rms of 2.88 mm on every mask. `gpri_tools.pathdelay.rewrap_to_chain`
+(`--rewrap` in `baker_pathdelay.py`) moves each longer baseline by whole
+cycles onto the chain sum and leaves anything smaller than a cycle alone.
+That brings the closure to 0.000 mm, takes the scene estimator's held-out
+score from −33.2 % to −44.5 % (the chain alone: −41.1 %), its GCV weight
+from 1043.7 down to the 57.5 floor and its delay rms from 0.626 to
+1.713 mm; the smooth estimator (`pair_delay_field`, σ = (5, 25), 24 h held
+to 1 %) goes from −4.1 % to −6.9 % on held-out rock and from −6.4 % to
+−11.1 % on the ice, on an apparent-velocity scatter that the rewrap itself
+raises from 337.8 to 375.2 m/yr on held-out rock before any correction.
+(`baker_pathdelay.py --scene 20170803_full --lags 1 2 3 --rewrap`, whose
+`smooth` row is the per-pixel cube Gaussian-filtered rather than
+`pair_delay_field`, prints for held-out rock 69.8 → 38.8 m/yr, 44.5 %, on
+the scene estimator, 375.2 → 61.2, 83.7 %, per pixel and 375.2 → 353.2,
+5.8 %, smoothed, and 15.3 %, 82.4 % and 9.6 % on the ice.) On the
+multilooked `20170913` (3 × 15 looks, 1,305 pairs, 437 epochs) the same
+operation moves 3.0 % of the fit-rock samples at lag 2 and 4.0 % at lag 3
+(0.6 % and 1.2 % of the ice; 27 % and 34 % of all finite pixels), takes the
+per-pixel lag-2 closure from 1.41 to 0.64 mm on rock and 0.65 to 0.18 mm on
+ice, and changes the scores by at most 2.4 points: scene −56.2 % → −56.3 %,
+smooth −12.9 % → −11.7 % on held-out rock and −34.4 % → −36.8 % on the ice,
+with the held-out scatter before correction going 167.8 → 182.2 m/yr.
+
+The other option is to leave the pairs where they are and let the fit
+weight them down. `robust=2` (`invert_path_delay`, `pair_delay_field`) runs
+two Huber sweeps after the least-squares solve with the weight on the
+*pair*: a pair whose implied error exceeds three robust scales in every row
+it enters is weighted down in that pixel, and a row takes the smaller of
+its two pairs' weights. On the same two runs it moves the held-out score by
+at most 0.1 point in either state — `20170803_full` as measured
+−4.1 % → −4.2 %, rewrapped −6.9 % → −6.8 %; `20170913` −12.9 % → −12.8 %,
+−11.7 % → −11.7 % — and the delay field's sd by 0.05–0.11 mm, at one
+banded solve per pixel per sweep (5–7 ms at 437–723 epochs). A lag-1 chain
+has no redundancy for it to use, and the weights stay at 1.
 
 ## The pipeline that makes the baselines real
 
@@ -363,12 +398,17 @@ comparison needs.
 
 ```bash
 python examples/baker_pathdelay.py --scene 20170913
-python examples/baker_pathdelay.py --scene 20170803_full --lags 1 2 3
+python examples/baker_pathdelay.py --scene 20170803_full --lags 1 2 3 --rewrap
 ```
 
 The second form forms pairs over several temporal baselines, which carries
 less noise into the delay — measured on a synthetic 40-epoch chain, lags
 1, 2, 3 propagate a quarter of the noise that lag 1 alone does — at the cost
-of reading the stack again. Results cache to
+of reading the stack again, and `--rewrap` puts each longer baseline on the
+cycle nearest the chain it spans (the numbers are under "Mixing baselines
+wraps" above). The Huber sweeps are a library option, `robust=2` on
+`invert_path_delay` and `pair_delay_field`. Results cache to
 `work/<scene>/pathdelay_u_dec16.npz` and the figure to
-`docs/figures/28_pathdelay_<scene>.png`.
+`docs/figures/28_pathdelay_<scene>.png`; neither name carries `--lags` or
+`--rewrap`, so the two forms above write the same files, and a run whose
+arguments differ from the cache's recomputes and overwrites them.

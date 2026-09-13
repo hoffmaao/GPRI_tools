@@ -39,6 +39,10 @@ covariance/    sample coherence matrices
 phaselink/     EVD, eigenSAR, EMI and exact ML phase linking
 atmosphere/    range-dependent refractivity screens, estimated on wrapped phase
 aps/           network-consistent epoch screens, drift and turbulence
+pathdelay/     one path delay per acquisition from double-differenced pairs,
+               with the rows re-wrapped onto the chain and robustly weighted
+modes/         temporal modes of the corrected bedrock, and whether their
+               loadings transfer to pixels that were not fitted
 glaciers/      RGI outlines: where the ice actually is, independent of coherence
 refractivity/  the same screens from meteorology, and per-epoch N
 closure/       closure-phase bias estimation and correction
@@ -115,7 +119,7 @@ above was built for, and it is the only example in this repository.
 
 ```bash
 pip install -e '.[all]'      # numpy, scipy + pyproj, rasterio, matplotlib
-pytest                       # 418 tests
+pytest                       # 455 tests
 ```
 
 Only `numpy` and `scipy` are required. `pyproj` and `rasterio` are needed for
@@ -230,6 +234,12 @@ for s in $CAMPAIGNS; do python examples/baker_catchments.py --scene $s; done
 # that adds rows but no information -- the long-baseline phases close exactly
 # with the chain -- so the default stays at the chain alone; see docs/pathdelay.md
 for s in $CAMPAIGNS; do python examples/baker_pathdelay.py --scene $s; done
+# --rewrap puts each longer baseline on the cycle nearest the chain it spans;
+# at single look that is the only thing separating the two
+python examples/baker_pathdelay.py --scene 20170803_full --lags 1 2 3 --rewrap
+# what the corrected bedrock still does together: temporal modes of the
+# post-ladder residual over the fit half, scored on the half that was held out
+for s in 20170803_full 20180808 20190719; do python examples/baker_modes.py --scene $s; done
 # the air and the ice in one movie, two panels on one clock: the per-acquisition
 # path delay beside the deformation left after the ladder and that delay. Needs
 # multilooked pairs -- at single look the per-pixel delay field is mostly noise

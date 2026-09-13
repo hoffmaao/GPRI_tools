@@ -76,6 +76,11 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+try:
+    from scipy.linalg import solveh_banded
+except ImportError:  # pragma: no cover
+    solveh_banded = None
+
 __all__ = [
     "DoubleDifference", "PathDelay", "discarded_rate", "displacement_delay_field",
     "pair_delay_field",
@@ -83,8 +88,8 @@ __all__ = [
     "gls_path_delay", "gls_resolution", "joint_design", "lambda_for_response",
     "roughness_penalty",
     "lambda_for_system_response", "pin_affine", "pin_rate",
-    "response_from_resolution", "select_lambda", "shared_epoch_triplets",
-    "system_response", "tikhonov",
+    "response_from_resolution", "rewrap_to_chain", "select_lambda",
+    "shared_epoch_triplets", "system_response", "tikhonov",
 ]
 
 #: Rows whose observation is non-finite in any pixel are dropped by default.
@@ -286,6 +291,183 @@ def tikhonov(A, b, lam, chunk=None):
     return X.reshape((n,) + spatial)
 
 
+def _robust_tikhonov(A, B, lam, iterations, rows, coef, n_pairs, huber=3.0,
+                     chunk=64):
+    """Tikhonov solve with Huber weights on the *pairs*, per pixel.
+
+    Errors in this system live on pairs, not rows — a wrapped or badly
+    unwrapped interferogram is wrong in every double difference it enters —
+    so the weight is attached to the pair.  Each row's residual, divided by
+    the coefficient a pair enters it with, is that row's estimate of the
+    pair's error; a pair's statistic is the **smallest** of those over the
+    rows it appears in, so a good pair next to a bad one (large in one row,
+    small in the rest) keeps its weight while the bad one, large in all of
+    them, loses it.  Row-level Huber weights do not do this: the least
+    squares start bends toward the bad pair and its neighbours' rows carry
+    the leak, so they are weighted down with it and the sweeps crawl.  The
+    pair statistic converges in two.
+
+    Weights are ``min(1, huber * scale / stat)`` with ``scale`` the 1.4826
+    MAD of the statistic over the pixel's pairs, recomputed each sweep (the
+    weight is capped, so a shrinking scale cannot run away), and a row takes
+    the smaller of its two pairs' weights.  A non-finite observation gets
+    weight zero in its own pixel only.  With a single baseline there is no
+    redundancy and a bad pair is fitted exactly, weight one: robustness
+    needs the longer baselines.
+
+    Every pixel gets its own normal matrix.  A row touches three epochs a
+    few lags apart, so the matrix is assembled from nine products per row
+    and is banded, and each pixel's solve is a banded Cholesky — linear in
+    the epochs, not cubic.  (A design whose rows reach across the whole
+    record falls back to a dense solve.)  Returns ``(x, rms, pair_weight)``
+    with ``rms`` the per-pixel residual rms after the last sweep and
+    ``pair_weight`` the mean weight of each pair over the pixels.
+    """
+    A = np.asarray(A, float)
+    m, n = A.shape
+    B = np.asarray(B, float)
+    Y = B.reshape(m, -1)
+    P = Y.shape[1]
+    rows = np.asarray(rows, int)
+    coef = np.asarray(coef, float)
+    finite = np.isfinite(Y)
+    Y0 = np.where(finite, Y, 0.0)
+    X = tikhonov(A, Y0, lam, chunk=200_000)
+    rms = np.empty(P)
+    weight_sum = np.zeros(n_pairs)
+    nz = [np.flatnonzero(A[r]) for r in range(m)]
+    q = max(len(c) for c in nz)
+    cols = np.zeros((m, q), int)
+    vals = np.zeros((m, q))
+    for r, c in enumerate(nz):
+        cols[r, :c.size] = c
+        vals[r, :c.size] = A[r, c]
+    bw = max(int(c.max() - c.min()) for c in nz if c.size)
+    banded = solveh_banded is not None and bw < n // 4
+    # the (i, j) products of each row, as flat indices into either the
+    # upper band form scipy wants (row bw + i - j, column j, i <= j) or the
+    # full matrix
+    ii, jj = np.meshgrid(np.arange(q), np.arange(q), indexing="ij")
+    ci, cj = cols[:, ii.ravel()], cols[:, jj.ravel()]           # (m, q^2)
+    vv = vals[:, ii.ravel()] * vals[:, jj.ravel()]
+    if banded:
+        keep = ci <= cj
+        ci, cj, vv = ci[keep], cj[keep], vv[keep]
+        ncell = (bw + 1) * n
+        cell = (bw + ci - cj) * n + cj
+        rr = np.broadcast_to(np.arange(m)[:, None], keep.shape)[keep]
+    else:
+        ncell = n * n
+        cell = (ci * n + cj).ravel()
+        vv = vv.ravel()
+        rr = np.repeat(np.arange(m), q * q)
+    for s in range(0, P, int(chunk)):
+        e = min(s + int(chunk), P)
+        p = e - s
+        Yc, Y0c, fc, Xc = Y[:, s:e], Y0[:, s:e], finite[:, s:e], X[:, s:e]
+        base = (np.arange(p) * ncell)[:, None]                 # (p, 1)
+        for _ in range(int(iterations)):
+            R = np.where(fc, Yc - A @ Xc, np.nan)
+            stat = np.full((n_pairs, e - s), np.inf)
+            for slot in (0, 1):
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    est = np.abs(R) / coef[:, slot][:, None]
+                np.minimum.at(stat, rows[:, slot], np.where(np.isfinite(est), est, np.inf))
+            stat = np.where(np.isfinite(stat), stat, np.nan)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                scale = 1.4826 * np.nanmedian(stat, axis=0)
+            scale = np.where(np.isfinite(scale) & (scale > 0), scale, np.inf)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                wp = np.minimum(1.0, float(huber) * scale[None, :]
+                                / np.maximum(stat, 1e-300))
+            wp = np.where(np.isfinite(wp), wp, 0.0)
+            W = np.where(fc, np.minimum(wp[rows[:, 0]], wp[rows[:, 1]]), 0.0)
+            Wc = W.T                                             # (p, m)
+            N = np.bincount((base + cell[None, :]).ravel(),
+                            weights=(Wc[:, rr] * vv[None, :]).ravel(),
+                            minlength=p * ncell)
+            rhs = (Wc * Y0c.T) @ A                               # (p, n)
+            if banded:
+                ab = N.reshape(p, bw + 1, n)
+                ab[:, bw, :] += float(lam)
+                for ip in range(p):
+                    Xc[:, ip] = solveh_banded(ab[ip], rhs[ip])
+            else:
+                N = N.reshape(p, n, n) + float(lam) * np.eye(n)
+                Xc = np.linalg.solve(N, rhs[..., None])[..., 0].T
+        X[:, s:e] = Xc
+        R = np.where(fc, Yc - A @ Xc, np.nan)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            rms[s:e] = np.sqrt(np.nanmean(R ** 2, axis=0))
+        weight_sum += np.nansum(wp, axis=1) if iterations else p
+    return (X.reshape((n,) + B.shape[1:]), rms.reshape(B.shape[1:]),
+            weight_sum / max(P, 1))
+
+
+def rewrap_to_chain(observations, pairs, ambiguity):
+    """Put every longer baseline on the cycle nearest the chain it spans.
+
+    A pair unwrapped on its own is known only modulo ``ambiguity`` — half a
+    wavelength of line-of-sight displacement on a two-way path — and a
+    baseline long enough for the phase to cross that bound comes back a
+    cycle away from where the chain of shorter pairs, which never crossed
+    it, puts the same interval.  Measured at single look on
+    `20170803_full`, the two-epoch pairs sit a whole cycle (8.7 mm) from
+    the chain on 11 % of the bedrock and ice samples and the three-epoch
+    pairs on 17 %, half of them each way; at 3 x 15 looks on `20170913`
+    it is 3-4 % of the bedrock and about 1 % of the ice.  Those rows
+    steer a least-squares fit.
+
+    Each pair ``(i, k)`` with ``k > i + 1`` is moved by the whole number of
+    cycles that brings it closest to the sum of the consecutive pairs
+    ``(i, i+1) ... (k-1, k)``.  Nothing smaller than a cycle is touched, so a
+    multilooked baseline keeps whatever independent value it measured.  A
+    pair with no complete chain beneath it is left alone.
+
+    Parameters
+    ----------
+    observations : (n_pairs, ...) array
+        Line-of-sight displacement per pair, in the unit of ``ambiguity``.
+    ambiguity : float
+        The displacement one phase cycle stands for: ``wavelength / 2`` for
+        the two-way path of ``los_displacement``.
+
+    Returns
+    -------
+    rewrapped : array
+        A copy, in the input's floating dtype.
+    moved : (n_pairs,) array
+        Fraction of finite pixels shifted, per pair; 0 on the chain itself.
+    """
+    obs = np.array(observations, copy=True)
+    if not np.issubdtype(obs.dtype, np.floating):
+        obs = obs.astype(float)
+    pr = np.asarray(pairs, int).reshape(-1, 2)
+    if obs.shape[0] != pr.shape[0]:
+        raise ValueError(f"{obs.shape[0]} observations for {pr.shape[0]} pairs")
+    amb = float(ambiguity)
+    if not amb > 0:
+        raise ValueError("ambiguity must be positive")
+    link = {int(i): p for p, (i, j) in enumerate(pr) if j == i + 1}
+    moved = np.zeros(pr.shape[0])
+    for p, (i, k) in enumerate(pr):
+        if k <= i + 1:
+            continue
+        beneath = [link.get(int(e)) for e in range(int(i), int(k))]
+        if any(q is None for q in beneath):
+            continue
+        predicted = obs[beneath].sum(axis=0)
+        with np.errstate(invalid="ignore"):
+            cycles = np.round((obs[p] - predicted) / amb)
+        ok = np.isfinite(cycles)
+        cycles = np.where(ok, cycles, 0.0)
+        moved[p] = float(np.mean(cycles[ok] != 0)) if ok.any() else 0.0
+        obs[p] = obs[p] - (cycles * amb).astype(obs.dtype, copy=False)
+    return obs, moved
+
+
 def select_lambda(A, b, lams=None, method="gcv"):
     """Pick the regularisation weight from the data.
 
@@ -431,6 +613,7 @@ class PathDelay:
     residual_rms: np.ndarray | None = None
     pinned: object = "affine"
     dropped_rows: int = 0
+    robust: int = 0
 
     @property
     def n_epochs(self) -> int:
@@ -486,7 +669,7 @@ def frequency_response(period, spacing, lam=0.0):
 def pair_delay_field(observations, pairs, times, mask, weights=None,
                      sigma=(5.0, 25.0), lam=None, protect_period=1.0,
                      max_response=0.01, chunk_rows=24, min_support=0.02,
-                     pair_variance=None):
+                     pair_variance=None, robust=0, huber=3.0):
     """Per-pixel path delay from measured pair observations, kept where trusted.
 
     Each pixel's series is inverted for a per-epoch delay, and each epoch's
@@ -519,6 +702,12 @@ def pair_delay_field(observations, pairs, times, mask, weights=None,
     protect_period : float, optional
         Passed to :func:`lambda_for_system_response`; ``1.0`` keeps the
         correction off a diurnal signal.
+    robust : int
+        Huber reweighting sweeps per pixel after the shared solve, as in
+        :func:`invert_path_delay` (two converge).  Zero keeps the one
+        factorisation for every pixel; anything above it solves each pixel
+        of ``mask`` on its own, the rest keeping the shared solve since the
+        screen never reads them.
 
     Returns
     -------
@@ -545,6 +734,7 @@ def pair_delay_field(observations, pairs, times, mask, weights=None,
         row_w = row_w / row_w.mean()
 
     A = sysd.A if row_w is None else sysd.A * np.sqrt(row_w)[:, None]
+    coef = sysd.weights if row_w is None else sysd.weights * np.sqrt(row_w)[:, None]
     if lam is None:
         series = np.array([np.nanmean(x[mask]) for x in obs])
         b_ = sysd.apply(series)
@@ -562,7 +752,17 @@ def pair_delay_field(observations, pairs, times, mask, weights=None,
         b = sysd.apply(obs[:, s:e])
         if row_w is not None:
             b = b * np.sqrt(row_w).reshape((-1,) + (1,) * (b.ndim - 1))
-        x = np.tensordot(M, b.reshape(b.shape[0], -1), axes=(1, 0))
+        b2 = b.reshape(b.shape[0], -1)
+        x = np.tensordot(M, b2, axes=(1, 0))
+        if int(robust) > 0:
+            # only the trusted pixels are read by the screen, so only they
+            # get the per-pixel sweeps
+            sel = (np.flatnonzero(np.asarray(mask, bool)[s:e].ravel())
+                   if obs.ndim > 1 else np.arange(b2.shape[1]))
+            if sel.size:
+                x[:, sel], _, _ = _robust_tikhonov(
+                    A, b2[:, sel], lam, int(robust), sysd.rows, coef,
+                    pr.shape[0], huber=huber)
         cube[:, s:e] = pin_rate(x.reshape((A.shape[1],) + b.shape[1:]), t, pr)
 
     field = np.empty_like(cube)
@@ -881,7 +1081,7 @@ def invert_path_delay(observations, pairs, times, lam=None, max_span=None,
                       max_triplets=None, normalise=True, weights=None,
                       pin="affine", nan_policy="drop", chunk=200_000,
                       lambda_method="gcv", protect_period=None,
-                      max_response=0.01):
+                      max_response=0.01, robust=0, huber=3.0):
     """Per-epoch path delay from a stack of pair observations.
 
     Parameters
@@ -915,6 +1115,15 @@ def invert_path_delay(observations, pairs, times, lam=None, max_span=None,
         ``False`` leaves whatever the regularised solve produced.
     nan_policy : {'drop', 'raise', 'zero'}
         What to do with a double difference that is non-finite anywhere.
+    robust : int
+        Number of Huber reweighting sweeps after the least-squares solve
+        (0, the default, is plain least squares).  The weight sits on the
+        pair: one whose implied error exceeds ``huber`` robust scales in
+        every row it enters is weighted down in that pixel, so a pair a
+        whole cycle off — see :func:`rewrap_to_chain` for the cheaper fix
+        when the chain is there to tell — stops steering the fit.  Two
+        sweeps converge; each costs a solve per pixel, and a single baseline
+        has no redundancy to be robust with.
 
     Returns
     -------
@@ -945,7 +1154,7 @@ def invert_path_delay(observations, pairs, times, lam=None, max_span=None,
         else:
             raise ValueError(f"nan_policy must be one of {NAN_POLICY}")
 
-    A, B, rows = sys.A[keep], b[keep], sys.rows[keep]
+    A, B, rows, coef = sys.A[keep], b[keep], sys.rows[keep], sys.weights[keep]
     if A.shape[0] < 3:
         raise ValueError(
             f"only {A.shape[0]} usable double differences; nothing to invert")
@@ -961,6 +1170,7 @@ def invert_path_delay(observations, pairs, times, lam=None, max_span=None,
         s = np.sqrt(np.maximum(w, 0.0))
         A = A * s[:, None]
         B = B * s.reshape((-1,) + (1,) * (B.ndim - 1))
+        coef = coef * s[:, None]
 
     if lam is None:
         mean = B.reshape(B.shape[0], -1).mean(axis=1)
@@ -969,10 +1179,15 @@ def invert_path_delay(observations, pairs, times, lam=None, max_span=None,
         lam = max(float(lam), float(lambda_for_system_response(
             A, t, protect_period, max_response)))
 
-    delay = tikhonov(A, B, lam, chunk=chunk)
-    resid = B - np.tensordot(A, delay, axes=(1, 0))
-    rms = np.sqrt(np.nanmean(resid.reshape(resid.shape[0], -1) ** 2, axis=0))
-    rms = rms.reshape(delay.shape[1:]) if delay.ndim > 1 else float(rms[0])
+    if int(robust) > 0:
+        delay, rms, _ = _robust_tikhonov(A, B, lam, int(robust), rows, coef,
+                                         pr.shape[0], huber=huber)
+        rms = rms if delay.ndim > 1 else float(rms)
+    else:
+        delay = tikhonov(A, B, lam, chunk=chunk)
+        resid = B - np.tensordot(A, delay, axes=(1, 0))
+        rms = np.sqrt(np.nanmean(resid.reshape(resid.shape[0], -1) ** 2, axis=0))
+        rms = rms.reshape(delay.shape[1:]) if delay.ndim > 1 else float(rms[0])
 
     if pin == "rate":
         delay = pin_rate(delay, t, pr)
@@ -987,4 +1202,4 @@ def invert_path_delay(observations, pairs, times, lam=None, max_span=None,
     return PathDelay(delay=delay, times=t, pairs=pr, lam=float(lam), system=sys,
                      residual_rms=rms,
                      pinned=("affine" if pin is True else pin),
-                     dropped_rows=int(bad.sum()))
+                     dropped_rows=int(bad.sum()), robust=int(robust))

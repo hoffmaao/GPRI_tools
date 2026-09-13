@@ -14,8 +14,9 @@ from gpri_tools.pathdelay import (DoubleDifference, PathDelay, discarded_rate,
                                   lambda_for_response,
                                   lambda_for_system_response, pin_affine,
                                   pin_rate, response_from_resolution,
-                                  select_lambda, shared_epoch_triplets,
-                                  system_response, tikhonov)
+                                  rewrap_to_chain, select_lambda,
+                                  shared_epoch_triplets, system_response,
+                                  tikhonov)
 
 CADENCE = 4.0 / (60.0 * 24.0)          # four minutes, in days
 
@@ -756,3 +757,137 @@ def test_pair_variance_of_the_wrong_length_is_refused():
     with pytest.raises(ValueError, match="pair_variance has"):
         pair_delay_field(obs, net.pairs, net.times, np.ones((1, 1), bool),
                          pair_variance=np.ones(3), lam=1.0)
+
+
+# ------------------------------------------------- wrapped rows and robust fits
+AMBIGUITY = 8.7                                   # mm per cycle, Ku band two-way
+
+
+def test_rewrap_moves_only_whole_cycles_and_only_off_the_chain():
+    rng = np.random.default_rng(140)
+    net = _chain(n_epochs=30, lags=(1, 2, 3))
+    a = rng.normal(0, 0.5, net.n_epochs)
+    obs = _observe(net, a, rate=40.0)[:, None, None] * np.ones((1, 4, 5))
+    obs += rng.normal(0, 0.05, obs.shape)         # independent per-pair noise
+    long = [p for p, (i, j) in enumerate(net.pairs) if j > i + 1]
+    truth = obs.copy()
+    wrapped = obs.copy()
+    wrapped[long[0], 1, 2] += AMBIGUITY            # one pixel, one cycle up
+    wrapped[long[3], 0, 0] -= 2 * AMBIGUITY        # another, two cycles down
+    wrapped[long[5], 3, 4] += 0.3 * AMBIGUITY      # less than a cycle: stays
+
+    fixed, moved = rewrap_to_chain(wrapped, net.pairs, AMBIGUITY)
+    assert fixed.shape == obs.shape
+    assert np.allclose(fixed[long[0], 1, 2], truth[long[0], 1, 2], atol=1e-9)
+    assert np.allclose(fixed[long[3], 0, 0], truth[long[3], 0, 0], atol=1e-9)
+    assert np.allclose(fixed[long[5], 3, 4], wrapped[long[5], 3, 4])
+    assert moved[long[0]] == pytest.approx(1 / 20)
+    assert moved[long[3]] == pytest.approx(1 / 20)
+    assert moved[long[5]] == 0.0
+    chain = [p for p, (i, j) in enumerate(net.pairs) if j == i + 1]
+    assert np.array_equal(fixed[chain], wrapped[chain])
+    assert wrapped[long[0], 1, 2] != fixed[long[0], 1, 2]   # input untouched
+
+
+def test_rewrap_leaves_a_pair_with_no_chain_beneath_it():
+    net = _chain(n_epochs=8, lags=(1, 2))
+    pairs = [tuple(int(x) for x in p) for p in net.pairs]
+    pairs.remove((2, 3))                                  # break the chain
+    obs = np.zeros(len(pairs))
+    k = pairs.index((2, 4))
+    obs[k] = AMBIGUITY
+    fixed, moved = rewrap_to_chain(obs, pairs, AMBIGUITY)
+    assert fixed[k] == AMBIGUITY and moved[k] == 0.0
+    j = pairs.index((0, 2))                               # this one is spanned
+    obs[j] = AMBIGUITY
+    fixed, moved = rewrap_to_chain(obs, pairs, AMBIGUITY)
+    assert fixed[j] == 0.0 and moved[j] == 1.0
+
+
+def test_rewrap_refuses_bad_input():
+    net = _chain(n_epochs=6, lags=(1, 2))
+    obs = np.zeros(net.n_pairs)
+    with pytest.raises(ValueError, match="ambiguity"):
+        rewrap_to_chain(obs, net.pairs, 0.0)
+    with pytest.raises(ValueError, match="observations for"):
+        rewrap_to_chain(obs[:-1], net.pairs, AMBIGUITY)
+
+
+def test_robust_sweeps_shrug_off_a_wrapped_pair():
+    rng = np.random.default_rng(151)
+    net = _chain(n_epochs=40, lags=(1, 2))
+    a = pin_affine(rng.normal(0, 1.0, net.n_epochs), net.times)
+    obs = _observe(net, a, rate=30.0) + rng.normal(0, 0.02, net.n_pairs)
+    long = [p for p, (i, j) in enumerate(net.pairs) if j > i + 1]
+    obs[long[10]] += AMBIGUITY
+
+    plain = invert_path_delay(obs, net.pairs, net.times, lam=1e-6)
+    tough = invert_path_delay(obs, net.pairs, net.times, lam=1e-6, robust=3)
+    err = lambda pd: np.sqrt(np.mean((pd.delay - a) ** 2))
+    assert tough.robust == 3 and plain.robust == 0
+    assert err(tough) < 0.3 * err(plain)
+
+
+def test_robust_zero_is_the_plain_solve_and_clean_data_stay_put():
+    rng = np.random.default_rng(152)
+    net = _chain(n_epochs=30, lags=(1, 2))
+    a = rng.normal(0, 1.0, net.n_epochs)
+    obs = _observe(net, a, rate=5.0) + rng.normal(0, 0.01, net.n_pairs)
+    plain = invert_path_delay(obs, net.pairs, net.times, lam=1e-3)
+    same = invert_path_delay(obs, net.pairs, net.times, lam=1e-3, robust=0)
+    assert np.array_equal(plain.delay, same.delay)
+    # gaussian noise only: the sweeps change the answer by a small fraction
+    tough = invert_path_delay(obs, net.pairs, net.times, lam=1e-3, robust=2)
+    assert np.max(np.abs(tough.delay - plain.delay)) < 0.2 * np.std(plain.delay)
+
+
+def test_robust_solves_each_pixel_on_its_own():
+    """A wrapped pair in one pixel must not touch its neighbours."""
+    rng = np.random.default_rng(153)
+    net = _chain(n_epochs=30, lags=(1, 2))
+    a = pin_affine(rng.normal(0, 1.0, net.n_epochs), net.times)
+    one = _observe(net, a, rate=10.0) + rng.normal(0, 0.02, net.n_pairs)
+    obs = np.tile(one[:, None], (1, 3))
+    long = [p for p, (i, j) in enumerate(net.pairs) if j > i + 1]
+    obs[long[4], 1] += AMBIGUITY
+    pd = invert_path_delay(obs, net.pairs, net.times, lam=1e-6, robust=3)
+    clean = invert_path_delay(one, net.pairs, net.times, lam=1e-6, robust=3)
+    assert np.allclose(pd.delay[:, 0], clean.delay, atol=1e-9)
+    assert np.allclose(pd.delay[:, 2], clean.delay, atol=1e-9)
+    assert np.sqrt(np.mean((pd.delay[:, 1] - a) ** 2)) < 0.1
+
+
+def test_pair_delay_field_takes_the_robust_path():
+    rng = np.random.default_rng(154)
+    net = _chain(n_epochs=40, lags=(1, 2))
+    a = pin_rate(rng.normal(0, 1.0, net.n_epochs), net.times, net.pairs)
+    cube = np.tile(a[:, None, None], (1, 5, 5))
+    obs = np.stack([cube[j] - cube[i] for i, j in net.pairs])
+    obs += rng.normal(0, 0.02, obs.shape)
+    long = [p for p, (i, j) in enumerate(net.pairs) if j > i + 1]
+    obs[long[6], 2, 2] += AMBIGUITY
+    mask = np.ones(obs.shape[1:], bool)
+    plain, _ = pair_delay_field(obs, net.pairs, net.times, mask, sigma=(0.5, 0.5),
+                                protect_period=None, lam=1e-4)
+    tough, _ = pair_delay_field(obs, net.pairs, net.times, mask, sigma=(0.5, 0.5),
+                                protect_period=None, lam=1e-4, robust=3)
+    err = lambda f: np.sqrt(np.nanmean((f[:, 2, 2] - a) ** 2))
+    assert err(tough) < 0.5 * err(plain)
+
+
+def test_robust_banded_and_dense_solves_agree(monkeypatch):
+    from gpri_tools import pathdelay as pdm
+    net = _chain(30, lags=(1, 2, 3))
+    rng = np.random.default_rng(5)
+    delay = rng.standard_normal(30) * 0.4
+    obs = np.stack([_observe(net, delay) + 0.05 * rng.standard_normal(len(net.pairs))
+                    for _ in range(4)], axis=1)
+    obs[7, 2] += AMBIGUITY
+    pairs = np.asarray(net.pairs, int)
+    sysd = double_difference(pairs, net.times)
+    args = (sysd.A, sysd.apply(obs), 1e-3, 2, sysd.rows, sysd.weights, pairs.shape[0])
+    x_band, rms_band, w_band = pdm._robust_tikhonov(*args)
+    monkeypatch.setattr(pdm, "solveh_banded", None)
+    x_dense, rms_dense, w_dense = pdm._robust_tikhonov(*args)
+    assert np.allclose(x_band, x_dense, atol=1e-8)
+    assert np.allclose(rms_band, rms_dense) and np.allclose(w_band, w_dense)

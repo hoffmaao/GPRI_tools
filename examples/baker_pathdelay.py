@@ -76,7 +76,8 @@ from gpri_tools.heading import scene_heading                               # noq
 from gpri_tools.pathdelay import (discarded_rate, double_difference,       # noqa: E402
                                   frequency_response, invert_path_delay,
                                   lambda_for_system_response, pin_rate,
-                                  select_lambda, system_response)
+                                  rewrap_to_chain, select_lambda,
+                                  system_response)
 from gpri_tools.refractivity import specific_humidity                      # noqa: E402
 from gpri_tools.timeseries import los_displacement                         # noqa: E402
 
@@ -84,7 +85,7 @@ PATHDELAY_CACHE_VERSION = 3
 
 #: flags that change what the cached numbers answer
 CACHE_ARGS = ("ice_coherence", "stable_coherence", "sigma", "lags", "looks",
-              "protect_period", "max_response", "debias")
+              "protect_period", "max_response", "debias", "rewrap")
 
 ESTIMATORS = ("scene", "pixel", "smooth")
 MASKS = ("fit rock", "held rock", "ice")
@@ -212,6 +213,14 @@ def compute(scene, name, args):
     pairs = np.asarray(net.pairs[:n], int)
     times = np.asarray(net.times, float)
     dt = times[pairs[:, 1]] - times[pairs[:, 0]]
+    if args.rewrap:
+        # A pair unwrapped on its own is known modulo half a wavelength; put
+        # each longer baseline on the cycle nearest the chain it spans.
+        d, moved = rewrap_to_chain(d, pairs, stack.wavelength / 2 * 1000.0)
+        lag = pairs[:, 1] - pairs[:, 0]
+        print("rewrapped onto the chain: " + (", ".join(
+            f"lag {L} moved {100 * moved[lag == L].mean():.1f} % of samples"
+            for L in np.unique(lag) if L > 1) or "nothing to move at lag 1"))
     system = double_difference(pairs, times)
     print(f"{system.n_rows:,} double differences over {len(times):,} epochs, "
           f"baselines {system.spans.min() * 1440:.1f}-{system.spans.max() * 1440:.1f} min")
@@ -397,6 +406,11 @@ def main():
                     help="temporal baselines to form pairs over; more than one "
                          "carries less noise into the delay, at the cost of "
                          "reading the stack again")
+    ap.add_argument("--rewrap", action="store_true",
+                    help="move each longer baseline by whole cycles onto the "
+                         "chain it spans (gpri_tools.pathdelay.rewrap_to_chain); "
+                         "at single look the two are the same phase and only "
+                         "the wrapping separates them")
     ap.add_argument("--lam", type=float, default=None,
                     help="Tikhonov weight; chosen by GCV when omitted")
     ap.add_argument("--protect-period", type=float, default=1.0,

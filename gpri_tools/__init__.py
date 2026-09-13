@@ -45,9 +45,9 @@ from __future__ import annotations
 __version__ = "0.7.0"
 
 from . import (aps, atmosphere, closure, covariance, diurnal, focus, gamma,
-               coregister, geocode, glaciers, heading, melt, met,
-               network, pairlsq, phaselink, psinterp, refractivity, stack,
-               timeseries)
+               coregister, geocode, glaciers, heading, melt, met, modes,
+               network, pairlsq, pathdelay, phaselink, psinterp, refractivity,
+               stack, timeseries)
 from .aps import epoch_screen_correction, invert_screens, turbulence_screen
 from .closure import correct_bias, estimate_bias
 from .diurnal import diurnal_amplitude, fit_harmonics, range_dependence
