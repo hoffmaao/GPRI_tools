@@ -80,9 +80,11 @@ __all__ = [
     "DoubleDifference", "PathDelay", "discarded_rate", "displacement_delay_field",
     "pair_delay_field",
     "double_difference", "frequency_response", "invert_path_delay",
-    "lambda_for_response",
-    "lambda_for_system_response", "pin_affine", "pin_rate", "select_lambda",
-    "shared_epoch_triplets", "system_response", "tikhonov",
+    "gls_path_delay", "gls_resolution", "joint_design", "lambda_for_response",
+    "roughness_penalty",
+    "lambda_for_system_response", "pin_affine", "pin_rate",
+    "response_from_resolution", "select_lambda", "shared_epoch_triplets",
+    "system_response", "tikhonov",
 ]
 
 #: Rows whose observation is non-finite in any pixel are dropped by default.
@@ -483,7 +485,8 @@ def frequency_response(period, spacing, lam=0.0):
 
 def pair_delay_field(observations, pairs, times, mask, weights=None,
                      sigma=(5.0, 25.0), lam=None, protect_period=1.0,
-                     max_response=0.01, chunk_rows=24, min_support=0.02):
+                     max_response=0.01, chunk_rows=24, min_support=0.02,
+                     pair_variance=None):
     """Per-pixel path delay from measured pair observations, kept where trusted.
 
     Each pixel's series is inverted for a per-epoch delay, and each epoch's
@@ -506,7 +509,13 @@ def pair_delay_field(observations, pairs, times, mask, weights=None,
         per-pixel field over the whole frame instead drags in delays fitted on
         incoherent ground, which is worse than doing nothing.
     weights : array, optional
-        Per-pixel confidence for the fit; mean coherence is the intended one.
+        Per-pixel confidence for the spatial fit; mean coherence is the
+        intended one.
+    pair_variance : (n_pairs,) array, optional
+        Per-pair error variance, shared across pixels — the Cramer-Rao form
+        ``(1 - g^2) / (2 g^2)`` from each pair's coherence is the intended
+        source.  Measured on `20170913`, weighting by it takes the held-out
+        bedrock scatter from -56.2 % to -58.8 % at no cost in selectivity.
     protect_period : float, optional
         Passed to :func:`lambda_for_system_response`; ``1.0`` keeps the
         correction off a diurnal signal.
@@ -524,20 +533,35 @@ def pair_delay_field(observations, pairs, times, mask, weights=None,
     t = np.asarray(times, float)
     sysd = double_difference(pr, t)
 
+    # a per-pair variance becomes a per-row weight: each double difference is
+    # only as good as the worse of the two pairs it is built from
+    row_w = None
+    if pair_variance is not None:
+        v = np.maximum(np.asarray(pair_variance, float), 1e-30)
+        if v.size != pr.shape[0]:
+            raise ValueError(f"pair_variance has {v.size} entries for "
+                             f"{pr.shape[0]} pairs")
+        row_w = 1.0 / np.maximum(v[sysd.rows[:, 0]], v[sysd.rows[:, 1]])
+        row_w = row_w / row_w.mean()
+
+    A = sysd.A if row_w is None else sysd.A * np.sqrt(row_w)[:, None]
     if lam is None:
         series = np.array([np.nanmean(x[mask]) for x in obs])
-        lam, _ = select_lambda(sysd.A, sysd.apply(series), method="gcv")
+        b_ = sysd.apply(series)
+        lam, _ = select_lambda(A, b_ if row_w is None else b_ * np.sqrt(row_w),
+                               method="gcv")
     if protect_period is not None:
         lam = max(float(lam), float(lambda_for_system_response(
-            sysd.A, t, protect_period, max_response)))
+            A, t, protect_period, max_response)))
 
-    A = sysd.A
     M = np.linalg.solve(A.T @ A + lam * np.eye(A.shape[1]), A.T)
     cube = np.empty((A.shape[1],) + obs.shape[1:], float)
     rows = obs.shape[1] if obs.ndim > 1 else 1
     for s in range(0, rows, int(chunk_rows)):
         e = min(s + int(chunk_rows), rows)
         b = sysd.apply(obs[:, s:e])
+        if row_w is not None:
+            b = b * np.sqrt(row_w).reshape((-1,) + (1,) * (b.ndim - 1))
         x = np.tensordot(M, b.reshape(b.shape[0], -1), axes=(1, 0))
         cube[:, s:e] = pin_rate(x.reshape((A.shape[1],) + b.shape[1:]), t, pr)
 
@@ -605,54 +629,252 @@ def lambda_for_response(period, spacing, max_response=0.01):
     return g ** 2 * (1.0 - rho) / rho
 
 
-def system_response(A, times, period, lam):
-    """Gain the regularised solve applies at ``period``, for *this* ``A``.
+def response_from_resolution(R, times, period):
+    """Gain a resolution operator applies to a harmonic of ``period``.
 
-    :func:`frequency_response` is the closed form for one equally spaced
-    triplet; a real stack mixes temporal baselines, and the longer ones are
-    more sensitive at long periods, so the closed form understates what gets
-    through.  This measures it on the operator actually being inverted:
-    ``M A`` is ``V diag(s^2 / (s^2 + lam)) V^T``, and this returns the largest
-    gain that filter applies to any phase of a harmonic of ``period``.
+    ``R`` maps the true per-epoch delay to the estimated one, so this is what
+    the estimator returns of a component at that period — the number to quote
+    before claiming a correction did or did not touch a signal.  Every
+    estimator here is judged by the same measure; only the way ``R`` is built
+    differs.
     """
     t = np.asarray(times, float)
     w = 2.0 * np.pi / float(period)
     H = np.column_stack([np.cos(w * t), np.sin(w * t)])
     H = H / np.linalg.norm(H, axis=0)
-    _, s, Vt = np.linalg.svd(np.asarray(A, float), full_matrices=False)
-    f = s ** 2 / (s ** 2 + float(lam))
-    return float(np.linalg.norm(Vt.T @ (f[:, None] * (Vt @ H)), axis=0).max())
+    return float(np.linalg.norm(np.asarray(R, float) @ H, axis=0).max())
+
+
+def system_response(A, times, period, lam):
+    """Gain the regularised double-difference solve applies at ``period``.
+
+    :func:`frequency_response` is the closed form for one equally spaced
+    triplet; a real stack mixes temporal baselines, and the longer ones are
+    more sensitive at long periods, so the closed form understates what gets
+    through.  This measures it on the operator actually being inverted:
+    ``M A`` is ``V diag(s^2 / (s^2 + lam)) V^T``.
+    """
+    _, s_, Vt = np.linalg.svd(np.asarray(A, float), full_matrices=False)
+    f = s_ ** 2 / (s_ ** 2 + float(lam))
+    return response_from_resolution(Vt.T @ (f[:, None] * Vt), times, period)
+
+
+def _bisect_lambda(response_at, max_response, hi_guess, tol=1e-3):
+    """Smallest ``lam`` with ``response_at(lam) <= max_response``."""
+    rho = float(max_response)
+    if not 0.0 < rho <= 1.0:
+        raise ValueError("max_response must be in (0, 1]")
+    if response_at(0.0) <= rho:
+        return 0.0
+    lo, hi = 1e-12, float(hi_guess)
+    while response_at(hi) > rho:
+        hi *= 100.0
+        if hi > 1e30:                                  # pragma: no cover
+            raise RuntimeError("no lam holds the response; check the period")
+    while hi / max(lo, 1e-300) > 1.0 + tol:
+        mid = np.sqrt(lo * hi)
+        if response_at(mid) > rho:
+            lo = mid
+        else:
+            hi = mid
+    return hi
 
 
 def lambda_for_system_response(A, times, period, max_response=0.01,
                                lo=None, hi=None, tol=1e-3):
     """Smallest ``lam`` holding :func:`system_response` at or under the target.
 
-    Bisects on ``log lam``; the response is monotone decreasing in ``lam``, so
-    the bracket only has to be wide enough.  Returns ``0.0`` when even an
-    unregularised solve already meets the target.
+    Bisects on ``log lam``; the response is monotone decreasing in ``lam``.
+    Returns ``0.0`` when even an unregularised solve already meets the target.
     """
-    rho = float(max_response)
-    if not 0.0 < rho <= 1.0:
-        raise ValueError("max_response must be in (0, 1]")
     A = np.asarray(A, float)
-    if system_response(A, times, period, 0.0) <= rho:
-        return 0.0
     spacing = float(np.median(np.abs(np.diff(np.sort(np.asarray(times, float))))))
-    lo = float(lo if lo is not None else 1e-12)
-    hi = float(hi if hi is not None else
-               max(lambda_for_response(period, spacing, rho), 1.0) * 1e6)
-    while system_response(A, times, period, hi) > rho:
-        hi *= 100.0
-        if hi > 1e30:                                  # pragma: no cover
-            raise RuntimeError("no lam holds the response; check the period")
-    while hi / max(lo, 1e-300) > 1.0 + tol:
-        mid = np.sqrt(lo * hi) if lo > 0 else hi / 10.0
-        if system_response(A, times, period, mid) > rho:
-            lo = mid
-        else:
-            hi = mid
-    return hi
+    guess = (hi if hi is not None else
+             max(lambda_for_response(period, spacing, max_response), 1.0) * 1e6)
+    return _bisect_lambda(lambda c: system_response(A, times, period, c),
+                          max_response, guess, tol=tol)
+
+
+def joint_design(pairs, times):
+    """``[D | dt]``: per-epoch delay differences beside a steady-motion column.
+
+    A pair reads ``b_p = (a_j - a_i) + v dt_p``.  Stacking that is the whole
+    model, and estimating ``v`` alongside the delays eliminates it once,
+    inside the weighted solve, instead of twice — which is what forming
+    double differences and then undoing their induced correlation amounts to.
+    """
+    pr = np.asarray(pairs, int).reshape(-1, 2)
+    t = np.asarray(times, float)
+    D = np.zeros((pr.shape[0], t.size))
+    D[np.arange(pr.shape[0]), pr[:, 1]] = 1.0
+    D[np.arange(pr.shape[0]), pr[:, 0]] -= 1.0
+    return np.column_stack([D, t[pr[:, 1]] - t[pr[:, 0]]])
+
+
+def roughness_penalty(n_epochs):
+    """``L^T L`` for the second difference of the delay — a smoothness prior.
+
+    Penalising curvature is **low-pass**: it hits short periods hardest, which
+    is the opposite of what a correction aimed at fast fluctuation wants.
+    Measured on a 400-epoch chain at two-minute cadence, holding 24 h to 1 %
+    with this prior leaves 0.003 at 2 h against 0.293 for a ridge and 0.946
+    for the double difference.  The double difference is selective because its
+    *data* term differences twice and so barely constrains slow components at
+    all — no choice of prior in the pair domain reproduces that.
+    """
+    n = int(n_epochs)
+    L = np.zeros((max(n - 2, 0), n))
+    for k in range(n - 2):
+        L[k, k], L[k, k + 1], L[k, k + 2] = 1.0, -2.0, 1.0
+    return L.T @ L
+
+
+def gls_resolution(G, weight, lam, n_epochs, penalty="ridge"):
+    """Resolution operator of the joint solve, for the delay block.
+
+    This is a different estimator from the double-difference solve, not a
+    reweighting of it: there the data term carries the operator's ``1/T^2``
+    emphasis, so holding a slow period costs almost nothing fast, while the
+    pair design differences only once and the same protection shrinks short
+    periods too.  :func:`response_from_resolution` measures both on the same
+    footing.
+    """
+    W = np.asarray(weight, float)
+    GtWG = G.T @ (W[:, None] * G)
+    P = _penalty_matrix(penalty, n_epochs)
+    A_ = GtWG + float(lam) * P
+    try:
+        return np.linalg.solve(A_, GtWG)[:n_epochs, :n_epochs]
+    except np.linalg.LinAlgError:               # pragma: no cover
+        return np.linalg.lstsq(A_, GtWG, rcond=None)[0][:n_epochs, :n_epochs]
+
+
+def _penalty_matrix(penalty, n_epochs):
+    """The prior's quadratic form, over ``[delay, motion]``.
+
+    The motion term is never penalised: it is a parameter of the model, not
+    something to shrink.
+    """
+    n = int(n_epochs)
+    P = np.zeros((n + 1, n + 1))
+    if penalty == "ridge":
+        P[:n, :n] = np.eye(n)
+    elif penalty == "roughness":
+        P[:n, :n] = roughness_penalty(n)
+    else:
+        raise ValueError(f"penalty must be 'ridge' or 'roughness', not {penalty!r}")
+    return P
+
+
+def gls_path_delay(observations, pairs, times, variance=None, lam=None,
+                   protect_period=1.0, max_response=0.01, pin="rate",
+                   penalty="ridge", chunk=200_000):
+    """Delay and steady motion together, weighted by the pair variances.
+
+    The poster's estimator — :func:`invert_path_delay` — solves
+    ``(A^T A + lam I)^-1 A^T b`` on double differences, which treats every row
+    as an independent measurement of equal variance.  They are neither: each
+    pair enters two triplets, so neighbouring rows are correlated at -0.5 even
+    when the pair errors are independent, and coherence makes the pair
+    variances unequal besides.  Solving in the pair domain instead never
+    manufactures that correlation.
+
+    Parameters
+    ----------
+    observations : (n_pairs, ...) array
+        LOS displacement per pair, ``d_j - d_i``.
+    penalty : {'ridge', 'roughness'}
+        The prior.  ``ridge`` penalises the delay's amplitude and is the
+        default; with the pair design's single difference it still suppresses
+        slow periods faster than short ones, but less sharply than the double
+        difference does.  ``roughness`` penalises the second time difference
+        and is **low-pass** — measured on a 400-epoch chain, holding 24 h to
+        1 % leaves 0.003 at 2 h, so it is the wrong prior for a correction
+        meant to remove fast fluctuation.  It is here because the choice
+        should be visible rather than assumed.
+    variance : (n_pairs,) array, optional
+        Per-pair error variance, shared across pixels — coherence is the
+        intended source.  ``None`` weights every pair alike, which is still
+        not the poster's estimator, because the pair domain has no induced
+        correlation to ignore.
+    lam : float, optional
+        Chosen by generalised cross-validation on the mask mean when omitted.
+    protect_period : float, optional
+        Raised until :func:`response_from_resolution` of this estimator is at
+        most ``max_response`` there.
+
+    Returns
+    -------
+    delay : (n_epochs, ...) array
+    motion : (...) array
+        The steady rate, in the observations' unit per unit of ``times``.
+    lam : float
+    """
+    obs = np.asarray(observations, float)
+    pr = np.asarray(pairs, int).reshape(-1, 2)
+    t = np.asarray(times, float)
+    if obs.shape[0] != pr.shape[0]:
+        raise ValueError(f"{obs.shape[0]} observations for {pr.shape[0]} pairs")
+    n = t.size
+    G = joint_design(pr, t)
+    w = (np.ones(pr.shape[0]) if variance is None
+         else 1.0 / np.maximum(np.asarray(variance, float), 1e-30))
+    if w.size != pr.shape[0]:
+        raise ValueError(f"variance has {w.size} entries for {pr.shape[0]} pairs")
+
+    GtWG = G.T @ (w[:, None] * G)
+    P = _penalty_matrix(penalty, n)
+    if lam is None:
+        mean = obs.reshape(obs.shape[0], -1).mean(axis=1)
+        rhs = G.T @ (w * mean)
+        lams = np.logspace(np.log10(max(np.trace(GtWG) / (n + 1), 1e-12)) - 8,
+                           np.log10(max(np.trace(GtWG) / (n + 1), 1e-12)) + 2, 40)
+        best, lam = np.inf, float(lams[0])
+        m_obs = mean.size
+        for c in lams:
+            x = np.linalg.solve(GtWG + c * P, rhs)
+            r2 = float(np.sum(w * (mean - G @ x) ** 2))
+            trace = m_obs - float(np.trace(
+                np.linalg.solve(GtWG + c * P, GtWG)))
+            if trace > 0:
+                g = m_obs * r2 / trace ** 2
+                if g < best:
+                    best, lam = g, float(c)
+    if protect_period is not None:
+        lam = max(float(lam), _bisect_lambda(
+            lambda c: response_from_resolution(
+                gls_resolution(G, w, c, n, penalty), t, protect_period),
+            max_response, max(np.trace(GtWG) / (n + 1), 1.0) * 1e6))
+
+    spatial = obs.shape[1:]
+    Y = obs.reshape(obs.shape[0], -1)
+    normal = GtWG + float(lam) * P
+    try:                                   # lam = 0 leaves the affine null space
+        chol = np.linalg.cholesky(normal)
+        solve = lambda R_: np.linalg.solve(chol.T, np.linalg.solve(chol, R_))
+    except np.linalg.LinAlgError:
+        solve = lambda R_: np.linalg.lstsq(normal, R_, rcond=None)[0]
+    X = np.empty((n + 1, Y.shape[1]))
+    step = Y.shape[1] if chunk is None else int(chunk)
+    for s0 in range(0, Y.shape[1], step):
+        e = min(s0 + step, Y.shape[1])
+        X[:, s0:e] = solve(G.T @ (w[:, None] * Y[:, s0:e]))
+    delay = X[:n].reshape((n,) + spatial)
+    motion = X[n].reshape(spatial) if spatial else float(X[n, 0])
+    # the affine null space is shared between the delay's trend and the rate:
+    # taking a trend out of the delay puts it into the motion, or the two stop
+    # predicting the same pairs
+    if pin == "rate":
+        shift = discarded_rate(delay, t, pr)
+        delay = pin_rate(delay, t, pr)
+        motion = motion + shift
+    elif pin:
+        tc = t - t.mean()
+        flat = np.moveaxis(delay, 0, 0).reshape(n, -1)
+        slope = (tc @ flat) / float(tc @ tc)
+        delay = pin_affine(delay, t)
+        motion = motion + slope.reshape(spatial) if spatial else motion + float(slope[0])
+    return delay, motion, float(lam)
 
 
 def invert_path_delay(observations, pairs, times, lam=None, max_span=None,

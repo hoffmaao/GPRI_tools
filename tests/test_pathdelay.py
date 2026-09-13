@@ -7,10 +7,14 @@ import pytest
 from gpri_tools.network import Network
 from gpri_tools.pathdelay import (DoubleDifference, PathDelay, discarded_rate,
                                   displacement_delay_field, double_difference,
+                                  pair_delay_field,
                                   frequency_response,
-                                  invert_path_delay, lambda_for_response,
+                                  gls_path_delay, gls_resolution,
+                                  invert_path_delay, joint_design,
+                                  lambda_for_response,
                                   lambda_for_system_response, pin_affine,
-                                  pin_rate, select_lambda, shared_epoch_triplets,
+                                  pin_rate, response_from_resolution,
+                                  select_lambda, shared_epoch_triplets,
                                   system_response, tikhonov)
 
 CADENCE = 4.0 / (60.0 * 24.0)          # four minutes, in days
@@ -597,3 +601,158 @@ def test_displacement_delay_field_honours_the_protected_period():
     kept, lam_kept = displacement_delay_field(d, net.pairs, net.times, mask,
                                               sigma=(1.0, 1.0), protect_period=1.0)
     assert lam_kept >= lam_free
+
+
+# ----------------------------------------------------- the pair-domain GLS
+def test_joint_design_is_the_pair_model():
+    net = _chain(n_epochs=6, lags=(1, 2))
+    G = joint_design(net.pairs, net.times)
+    assert G.shape == (net.n_pairs, net.n_epochs + 1)
+    a = np.arange(net.n_epochs, dtype=float) ** 2
+    v = 7.0
+    predicted = G @ np.r_[a, v]
+    expect = np.array([(a[j] - a[i]) + v * (net.times[j] - net.times[i])
+                       for i, j in net.pairs])
+    assert np.allclose(predicted, expect)
+
+
+def test_gls_recovers_delay_and_rate_without_noise():
+    rng = np.random.default_rng(101)
+    net = _chain(n_epochs=50, lags=(1, 2))
+    a = pin_rate(rng.normal(0, 2.0, net.n_epochs), net.times, net.pairs)
+    obs = _observe(net, a, rate=31.0)
+
+    delay, motion, lam = gls_path_delay(obs, net.pairs, net.times, lam=0.0,
+                                        protect_period=None)
+    assert np.allclose(delay, a, atol=1e-6)
+    assert motion == pytest.approx(31.0, rel=1e-6)
+
+
+def test_gls_matches_the_double_difference_up_to_the_null_space():
+    """With equal weights and no regularisation the two see the same thing."""
+    rng = np.random.default_rng(103)
+    net = _chain(n_epochs=40, lags=(1, 2))
+    obs = _observe(net, rng.normal(0, 2.0, net.n_epochs), rate=12.0)
+
+    dd = invert_path_delay(obs, net.pairs, net.times, lam=0.0, pin="rate").delay
+    gls, _, _ = gls_path_delay(obs, net.pairs, net.times, lam=0.0,
+                               protect_period=None, pin="rate")
+    assert np.allclose(dd, gls, atol=1e-6)
+
+
+def test_gls_cannot_move_a_rate_when_pinned():
+    rng = np.random.default_rng(107)
+    net = _chain(n_epochs=45, lags=(1, 2))
+    obs = _observe(net, rng.normal(0, 2.0, net.n_epochs), rate=9.0)
+    delay, _, _ = gls_path_delay(obs, net.pairs, net.times, lam=1e-3,
+                                 protect_period=None, pin="rate")
+    assert np.allclose(discarded_rate(delay, net.times, net.pairs), 0.0, atol=1e-9)
+
+
+def test_gls_downweights_a_bad_pair():
+    rng = np.random.default_rng(109)
+    net = _chain(n_epochs=40, lags=(1, 2))
+    a = pin_rate(rng.normal(0, 1.0, net.n_epochs), net.times, net.pairs)
+    obs = _observe(net, a, rate=5.0)
+    obs[7] += 40.0                                     # one wrecked pair
+
+    var = np.ones(net.n_pairs)
+    flat, _, _ = gls_path_delay(obs, net.pairs, net.times, lam=1e-4,
+                                protect_period=None)
+    var[7] = 1e6
+    told, _, _ = gls_path_delay(obs, net.pairs, net.times, variance=var,
+                                lam=1e-4, protect_period=None)
+    assert (np.sqrt(np.mean((told - a) ** 2))
+            < np.sqrt(np.mean((flat - a) ** 2)))
+
+
+def test_gls_protects_the_period_it_is_told_to():
+    rng = np.random.default_rng(113)
+    net = _chain(n_epochs=400, lags=(1, 2))
+    obs = _observe(net, rng.normal(0, 1.0, net.n_epochs), rate=8.0)
+    _, _, lam = gls_path_delay(obs, net.pairs, net.times, protect_period=1.0)
+    G = joint_design(net.pairs, net.times)
+    R = gls_resolution(G, np.ones(net.n_pairs), lam, net.n_epochs)
+    assert response_from_resolution(R, net.times, 1.0) <= 0.0101
+    # the pair design differences once, not twice, so protecting a slow period
+    # costs more at short ones here than it does on double differences
+    assert response_from_resolution(R, net.times, 1 / 12) > 0.2
+
+
+def test_roughness_prior_is_low_pass_and_says_so():
+    """The wrong prior for this job, kept so the choice is visible.
+
+    Compared at matched protection of the diurnal, not at matched lam: the
+    two penalties have quite different scales, so only the shape is at issue.
+    """
+    from gpri_tools.pathdelay import _bisect_lambda
+    net = _chain(n_epochs=300, lags=(1, 2))
+    G = joint_design(net.pairs, net.times)
+    w = np.ones(net.n_pairs)
+
+    def fast_response(penalty):
+        lam = _bisect_lambda(
+            lambda c: response_from_resolution(
+                gls_resolution(G, w, c, net.n_epochs, penalty), net.times, 1.0),
+            0.01, 1e14)
+        return response_from_resolution(
+            gls_resolution(G, w, lam, net.n_epochs, penalty), net.times, 1 / 12)
+
+    assert fast_response("roughness") < 0.1 * fast_response("ridge")
+
+
+def test_unknown_penalty_is_refused():
+    net = _chain(n_epochs=10)
+    obs = _observe(net, np.zeros(net.n_epochs), rate=1.0)
+    with pytest.raises(ValueError, match="penalty must be"):
+        gls_path_delay(obs, net.pairs, net.times, lam=1.0, penalty="magic")
+
+
+def test_gls_solves_many_pixels_like_one():
+    rng = np.random.default_rng(127)
+    net = _chain(n_epochs=25, lags=(1, 2))
+    a = rng.normal(0, 1.0, (net.n_epochs, 3, 2))
+    obs = np.stack([a[j] - a[i] for i, j in net.pairs])
+    field, motion, _ = gls_path_delay(obs, net.pairs, net.times, lam=1e-3,
+                                      protect_period=None)
+    assert field.shape == a.shape and motion.shape == (3, 2)
+    for rr in range(3):
+        for cc in range(2):
+            one, _, _ = gls_path_delay(obs[:, rr, cc], net.pairs, net.times,
+                                       lam=1e-3, protect_period=None)
+            assert np.allclose(field[:, rr, cc], one, atol=1e-8)
+
+
+def test_gls_rejects_a_wrong_sized_variance():
+    net = _chain(n_epochs=12)
+    obs = _observe(net, np.zeros(net.n_epochs), rate=1.0)
+    with pytest.raises(ValueError, match="variance has"):
+        gls_path_delay(obs, net.pairs, net.times, variance=np.ones(3), lam=1.0)
+
+
+def test_pair_variance_downweights_a_bad_pair_in_the_field():
+    rng = np.random.default_rng(131)
+    net = _chain(n_epochs=50, lags=(1, 2))
+    a = pin_rate(rng.normal(0, 1.0, net.n_epochs), net.times, net.pairs)
+    cube = np.tile(a[:, None, None], (1, 6, 6))
+    obs = np.stack([cube[j] - cube[i] for i, j in net.pairs])
+    obs[4] += 30.0
+    mask = np.ones(obs.shape[1:], bool)
+
+    flat, _ = pair_delay_field(obs, net.pairs, net.times, mask, sigma=(1.0, 1.0),
+                               protect_period=None, lam=1e-4)
+    var = np.ones(net.n_pairs)
+    var[4] = 1e6
+    told, _ = pair_delay_field(obs, net.pairs, net.times, mask, sigma=(1.0, 1.0),
+                               protect_period=None, lam=1e-4, pair_variance=var)
+    truth = np.tile(a[:, None, None], (1, 6, 6))
+    assert (np.sqrt(np.nanmean((told - truth) ** 2))
+            < np.sqrt(np.nanmean((flat - truth) ** 2)))
+
+
+def test_pair_variance_of_the_wrong_length_is_refused():
+    net = _chain(n_epochs=12)
+    obs = _observe(net, np.zeros(net.n_epochs), rate=1.0)[:, None, None]
+    with pytest.raises(ValueError, match="pair_variance has"):
+        pair_delay_field(obs, net.pairs, net.times, np.ones((1, 1), bool),
+                         pair_variance=np.ones(3), lam=1.0)

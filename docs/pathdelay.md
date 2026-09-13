@@ -217,6 +217,78 @@ trusted pixels agree on, which is the only per-pixel number worth quoting —
 is nearly four times more effective than at single look. That is the
 correction finally doing on this data what the method is supposed to do.
 
+## Weighting: the poster's estimator, WLS and GLS
+
+The poster solves `phi = (A^T A + lam I)^-1 A^T b`, which is Tikhonov-
+regularised *ordinary* least squares: every double-difference row is taken as
+an independent measurement of equal variance. Neither holds. Each pair enters
+two triplets, so neighbouring rows are correlated at exactly **-0.5** even
+when the pair errors are independent (`Sigma_b = T Sigma_pair T^T` is
+tridiagonal); and coherence makes the pair variances unequal besides.
+
+Three estimators, then. **WLS** keeps the double-difference form and weights
+each row by the worse of the two pairs it is built from
+(`pair_delay_field(..., pair_variance=...)`). **GLS** (`gls_path_delay`)
+drops the double difference and solves the pair model directly —
+`b_p = (a_j - a_i) + v dt_p` for the delays and the steady rate together
+(`joint_design`), weighted by the pair variances — which eliminates the
+motion once, inside the weighted solve, rather than forming double
+differences and then having to undo the correlation they induce.
+
+**Recovering a known delay, 150 draws, `lam` tuned for each:**
+
+| | poster | WLS | GLS |
+|---|---:|---:|---:|
+| lag 1, equal pair noise | 1.094 mm | 1.094 | **1.029** |
+| lags 1+2+3, equal noise | 0.650 mm | 0.650 | **0.559** |
+| lags 1+2+3, noise varying 4x | 0.794 mm | 0.770 | **0.606** |
+
+GLS is the better estimator, by 6 to 24 %, most in the multi-baseline,
+unequal-noise regime the multilooked pipeline runs in.
+
+**And it still loses on this problem**, because the diurnal has to be
+protected. Holding 24 h to 1 %, the double difference still returns 0.952 at
+2 h; the pair-domain solve returns 0.305. That gap is not a tuning choice —
+scanning `lam` over eight decades, GLS cannot reach the double difference's
+selectivity at any value:
+
+| protection at 24 h | double difference, 2 h | GLS, 2 h |
+|---|---:|---:|
+| 0.50 | 0.997 | 0.994 |
+| 0.10 | 0.993 | 0.887 |
+| 0.02 | 0.976 | 0.510 |
+| 0.01 | 0.952 | 0.305 |
+
+The reason is the data term, not the prior: the double difference differences
+*twice*, so its operator weights a component by `1/T^2` and slow periods are
+barely constrained — regularisation removes them almost for free. The pair
+design differences once. Penalising roughness instead of amplitude does not
+fix it and makes it worse: `roughness_penalty` is low-pass, and at matched
+24 h protection it leaves 0.003 at 2 h.
+
+**On real multilooked pairs** (`20170913`, 3 x 15 looks, lags 1+2+3), scored
+on held-out bedrock that never fed the estimate, all three floored to 1 % at
+24 h:
+
+| estimator | lam | resp 2 h | held-out rock scatter |
+|---|---:|---:|---:|
+| poster | 75.0 | 0.952 | -56.2 % |
+| **WLS** | 75.0 | 0.952 | **-58.8 %** |
+| GLS | 1.00 | 0.305 | -45.9 % |
+
+So the useful change is the cheap one: keep the poster's double-difference
+form and weight the rows by coherence. The pair variance is the Cramer-Rao
+form `(1 - g^2) / (2 g^2)`; over the fit half of `20170913` the pair
+coherences run 0.70 to 0.82, a two-fold spread in variance, and weighting by
+it is worth two and a half points of scatter at no cost in selectivity.
+
+`gls_path_delay` stays because it is the right tool when the constraint is
+absent — estimating the delay itself as well as possible, or wanting the
+steady rate and the delay from one weighted solve. Note its rate inherits the
+same affine unobservability as everything else here: pinning by rate moves
+the delay's trend into the motion term by construction, so that output is a
+convention, not a measurement.
+
 ## Keeping it off the signal you mean to measure
 
 The cross-validated weight is not safe by default. Across the six campaigns
