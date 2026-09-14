@@ -7,7 +7,8 @@ import pytest
 from gpri_tools.network import Network
 from gpri_tools.pathdelay import (DoubleDifference, PathDelay, discarded_rate,
                                   displacement_delay_field, double_difference,
-                                  pair_delay_field,
+                                  double_difference_row_weights,
+                                  pair_delay_field, pair_variance_from_coherence,
                                   frequency_response,
                                   gls_path_delay, gls_resolution,
                                   invert_path_delay, joint_design,
@@ -949,3 +950,78 @@ def test_robust_banded_and_dense_solves_agree(monkeypatch):
     x_dense, rms_dense, w_dense = pdm._robust_tikhonov(*args)
     assert np.allclose(x_band, x_dense, atol=1e-8)
     assert np.allclose(rms_band, rms_dense) and np.allclose(w_band, w_dense)
+
+
+def test_pair_variance_is_the_cramer_rao_form_of_the_pair_coherence():
+    g = np.array([0.6, 0.9, 0.3])
+    cc = np.stack([np.full((4, 5), x) for x in g])
+    assert np.allclose(pair_variance_from_coherence(cc), (1 - g ** 2) / (2 * g ** 2))
+
+
+def test_pair_variance_reads_only_the_masked_pixels():
+    cc = np.zeros((2, 3, 3), float)
+    cc[:, 0] = 0.8                       # the row the mask keeps
+    cc[:, 1:] = 0.1                      # incoherent ground the fit never reads
+    mask = np.zeros((3, 3), bool)
+    mask[0] = True
+    v = pair_variance_from_coherence(cc, mask)
+    assert np.allclose(v, (1 - 0.8 ** 2) / (2 * 0.8 ** 2))
+
+
+def test_pair_variance_clips_the_coherence_at_both_ends():
+    cc = np.stack([np.zeros((2, 2)), np.ones((2, 2))])
+    v = pair_variance_from_coherence(cc, clip=(0.2, 0.95))
+    assert np.allclose(v, [(1 - 0.2 ** 2) / (2 * 0.2 ** 2),
+                           (1 - 0.95 ** 2) / (2 * 0.95 ** 2)])
+
+
+def test_row_weights_take_the_worse_of_the_two_pairs():
+    net = _chain(n_epochs=6, lags=(1, 2))
+    pairs = np.asarray(net.pairs, int)
+    sysd = double_difference(pairs, net.times)
+    v = np.linspace(0.1, 1.0, pairs.shape[0])
+    w = double_difference_row_weights(sysd.rows, v, pairs.shape[0])
+    raw = 1.0 / np.maximum(v[sysd.rows[:, 0]], v[sysd.rows[:, 1]])
+    assert np.allclose(w, raw / raw.mean())
+    assert np.isclose(w.mean(), 1.0)
+
+
+def test_row_weights_refuse_a_variance_of_the_wrong_length():
+    net = _chain(n_epochs=5, lags=(1,))
+    sysd = double_difference(np.asarray(net.pairs, int), net.times)
+    with pytest.raises(ValueError, match="entries for"):
+        double_difference_row_weights(sysd.rows, np.ones(3), len(net.pairs))
+
+
+def test_weighting_a_field_follows_the_pair_the_variance_trusts():
+    """A pair with a large variance is allowed to pull the field less."""
+    net = _chain(n_epochs=24, lags=(1, 2))
+    rng = np.random.default_rng(11)
+    delay = pin_rate(rng.normal(0, 1.0, net.n_epochs), net.times, net.pairs)
+    obs = np.stack([np.full((4, 4), delay[j] - delay[i]) for i, j in net.pairs])
+    bad = 5                                     # one pair, badly wrong
+    obs[bad] += 4.0
+    mask = np.ones(obs.shape[1:], bool)
+    v = np.full(len(net.pairs), 0.05)
+    v[bad] = 50.0
+    plain, _ = pair_delay_field(obs, net.pairs, net.times, mask, sigma=(0.5, 0.5),
+                                protect_period=None, lam=1e-3)
+    weighted, _ = pair_delay_field(obs, net.pairs, net.times, mask, sigma=(0.5, 0.5),
+                                   protect_period=None, lam=1e-3, pair_variance=v)
+    err = lambda f: np.sqrt(np.nanmean((f[:, 2, 2] - (delay - delay[0])) ** 2))
+    assert err(weighted) < err(plain)
+
+
+def test_displacement_delay_field_passes_the_pair_variance_through():
+    net = _chain(n_epochs=12, lags=(1,))
+    rng = np.random.default_rng(3)
+    cube = rng.normal(0, 1.0, (net.n_epochs, 3, 3))
+    mask = np.ones(cube.shape[1:], bool)
+    v = np.linspace(0.1, 2.0, len(net.pairs))
+    a, _ = displacement_delay_field(cube, net.pairs, net.times, mask,
+                                    sigma=(0.5, 0.5), protect_period=None,
+                                    lam=1e-3, pair_variance=v)
+    b, _ = pair_delay_field(np.stack([cube[j] - cube[i] for i, j in net.pairs]),
+                            net.pairs, net.times, mask, sigma=(0.5, 0.5),
+                            protect_period=None, lam=1e-3, pair_variance=v)
+    assert np.allclose(a, b)

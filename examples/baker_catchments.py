@@ -46,12 +46,14 @@ from gpri_tools.diurnal import m_per_yr                                  # noqa:
 from gpri_tools.geocode import BAKERBEND1_HEADING, RadarGeometry          # noqa: E402
 from gpri_tools.glaciers import glacier_mask, load_outlines, stable_ground_mask  # noqa: E402
 from gpri_tools.heading import scene_heading                              # noqa: E402
-from gpri_tools.pathdelay import displacement_delay_field                 # noqa: E402
+from gpri_tools.pathdelay import (displacement_delay_field,            # noqa: E402
+                                  pair_variance_from_coherence)
 from gpri_tools.timeseries import los_displacement                        # noqa: E402
 
 
-# version 2: named outlines only, an unnamed one skipped
-CATCHMENTS_CACHE_VERSION = 2
+# version 3: the path-delay rows are weighted by the pairs' coherence, so a
+# cached --path-delay run from before the weighting answers a different question
+CATCHMENTS_CACHE_VERSION = 3
 
 # the flags that decide which pixels the catchment means are taken over; a
 # cache built under different ones answers a different question
@@ -109,7 +111,6 @@ def compute(scene, args):
     stack, net, phase, cc, r, az, n = load(scene, args.decimate, 0, antenna=args.antenna)
     lam = stack.wavelength
     mean_cc = cc.mean(axis=0)
-    del cc
     geom = RadarGeometry(decimated_par(stack.par, args.decimate),
                          heading=scene_heading(scene, default=BAKERBEND1_HEADING))
     la, lo = geom.geodetic(rows=[0, geom.shape[0] - 1], cols=[0, geom.shape[1] - 1])
@@ -117,6 +118,10 @@ def compute(scene, args):
     gdf = load_outlines(os.environ.get("GPRI_RGI", "data/rgi/rgi_61.zip"), bbox=bbox)
     stable, _ = stable_ground_mask(mean_cc, geom, gdf, threshold=args.stable_coherence)
     coherent = mean_cc >= args.ice_coherence
+    trusted = coherent | stable
+    # each pair is worth what its coherence over the trusted pixels says
+    pair_var = pair_variance_from_coherence(cc[:n], trusted)
+    del cc
 
     # the named glaciers with enough coherent ice to average
     masks, names, ids = [], [], []
@@ -146,11 +151,11 @@ def compute(scene, args):
 
     if args.path_delay:
         t0 = time.time()
-        trusted = coherent | stable
         field, lam = displacement_delay_field(
             d, np.asarray(net.pairs[:n], int), np.asarray(net.times, float),
             trusted, weights=mean_cc, sigma=tuple(args.sigma),
-            protect_period=args.protect_period, max_response=args.max_response)
+            protect_period=args.protect_period, max_response=args.max_response,
+            pair_variance=pair_var)
         d -= field.astype(d.dtype)
         print(f"path delay (lambda {lam:.4g}) removed in {time.time() - t0:.0f} s; "
               f"field sd {1000 * np.nanstd(field):.3f} mm over "

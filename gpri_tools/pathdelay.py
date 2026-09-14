@@ -83,8 +83,9 @@ except ImportError:  # pragma: no cover
 
 __all__ = [
     "DoubleDifference", "PathDelay", "discarded_rate", "displacement_delay_field",
-    "pair_delay_field",
-    "double_difference", "frequency_response", "invert_path_delay",
+    "pair_delay_field", "pair_variance_from_coherence",
+    "double_difference", "double_difference_row_weights",
+    "frequency_response", "invert_path_delay",
     "gls_path_delay", "gls_resolution", "joint_design", "lambda_for_response",
     "roughness_penalty",
     "lambda_for_system_response", "pin_affine", "pin_rate",
@@ -681,6 +682,66 @@ def frequency_response(period, spacing, lam=0.0):
     return g ** 2 / (g ** 2 + float(lam))
 
 
+def pair_variance_from_coherence(coherence, mask=None, clip=(0.05, 0.999)):
+    """Per-pair error variance from each pair's coherence.
+
+    ``(1 - g^2) / (2 g^2)`` is the Cramer-Rao variance of an interferometric
+    phase at coherence ``g``, and ``g`` here is the pair's mean coherence over
+    ``mask`` -- the pixels the fit reads -- so the answer is one number per
+    pair: the ``pair_variance`` of :func:`pair_delay_field`, or ``1 /`` it as
+    the ``weights`` of :func:`invert_path_delay`.  ``clip`` keeps a pair at
+    coherence 0 or 1 from carrying infinite or zero variance.
+
+    Parameters
+    ----------
+    coherence : (n_pairs, ...) array
+        Per-pair coherence on the pixel grid; read one pair at a time, so a
+        stack too large to copy is fine.
+    mask : bool array, optional
+        Pixels to average over.  The whole frame is used without one.
+    clip : (float, float)
+
+    Returns
+    -------
+    variance : (n_pairs,) array
+    """
+    lo, hi = (float(c) for c in clip)
+    g = np.empty(len(coherence), float)
+    for i, c in enumerate(coherence):
+        g[i] = np.nanmean(np.asarray(c, float)[mask] if mask is not None else c)
+    g = np.clip(g, lo, hi)
+    return (1.0 - g ** 2) / (2.0 * g ** 2)
+
+
+def double_difference_row_weights(rows, pair_variance, n_pairs=None):
+    """Row weights for a double-difference system from per-pair variances.
+
+    Each row differences two pairs, so it is only as good as the worse of the
+    two: ``1 / max(v_i, v_j)``, normalised to mean one so ``lam`` keeps its
+    scale.  Weight the system by multiplying ``A`` and the right-hand side by
+    the square root of what comes back.
+
+    Parameters
+    ----------
+    rows : (n_rows, 2) int array
+        :attr:`DoubleDifference.rows` -- the two pairs each row differences.
+    pair_variance : (n_pairs,) array
+    n_pairs : int, optional
+        Checked against ``pair_variance`` when given.
+
+    Returns
+    -------
+    row_weights : (n_rows,) array
+    """
+    v = np.maximum(np.asarray(pair_variance, float), 1e-30)
+    if n_pairs is not None and v.size != n_pairs:
+        raise ValueError(f"pair_variance has {v.size} entries for "
+                         f"{n_pairs} pairs")
+    r = np.asarray(rows, int).reshape(-1, 2)
+    w = 1.0 / np.maximum(v[r[:, 0]], v[r[:, 1]])
+    return w / w.mean()
+
+
 def pair_delay_field(observations, pairs, times, mask, weights=None,
                      sigma=(5.0, 25.0), lam=None, protect_period=1.0,
                      max_response=0.01, chunk_rows=24, min_support=0.02,
@@ -713,9 +774,10 @@ def pair_delay_field(observations, pairs, times, mask, weights=None,
         intended one.
     pair_variance : (n_pairs,) array, optional
         Per-pair error variance, shared across pixels — the Cramer-Rao form
-        ``(1 - g^2) / (2 g^2)`` from each pair's coherence is the intended
-        source.  Measured on `20170913`, weighting by it takes the held-out
-        bedrock scatter from -56.2 % to -58.8 % at no cost in selectivity.
+        ``(1 - g^2) / (2 g^2)`` from each pair's coherence, which
+        :func:`pair_variance_from_coherence` builds.  Measured on `20170913`,
+        weighting by it takes the held-out bedrock scatter from -56.2 % to
+        -58.8 % at no cost in selectivity; the Baker examples pass it.
     protect_period : float, optional
         Passed to :func:`lambda_for_system_response`; ``1.0`` keeps the
         correction off a diurnal signal.
@@ -745,12 +807,8 @@ def pair_delay_field(observations, pairs, times, mask, weights=None,
     # only as good as the worse of the two pairs it is built from
     row_w = None
     if pair_variance is not None:
-        v = np.maximum(np.asarray(pair_variance, float), 1e-30)
-        if v.size != pr.shape[0]:
-            raise ValueError(f"pair_variance has {v.size} entries for "
-                             f"{pr.shape[0]} pairs")
-        row_w = 1.0 / np.maximum(v[sysd.rows[:, 0]], v[sysd.rows[:, 1]])
-        row_w = row_w / row_w.mean()
+        row_w = double_difference_row_weights(sysd.rows, pair_variance,
+                                              pr.shape[0])
 
     A = sysd.A if row_w is None else sysd.A * np.sqrt(row_w)[:, None]
     coef = sysd.weights if row_w is None else sysd.weights * np.sqrt(row_w)[:, None]
@@ -794,7 +852,8 @@ def pair_delay_field(observations, pairs, times, mask, weights=None,
 
 def displacement_delay_field(displacement, pairs, times, mask, weights=None,
                              sigma=(5.0, 25.0), lam=None, protect_period=1.0,
-                             max_response=0.01, chunk_rows=24, min_support=0.02):
+                             max_response=0.01, chunk_rows=24, min_support=0.02,
+                             pair_variance=None):
     """The path delay of a displacement cube — :func:`pair_delay_field` after
     re-differencing the cube into the given pairs.
 
@@ -811,7 +870,7 @@ def displacement_delay_field(displacement, pairs, times, mask, weights=None,
                             weights=weights, sigma=sigma, lam=lam,
                             protect_period=protect_period,
                             max_response=max_response, chunk_rows=chunk_rows,
-                            min_support=min_support)
+                            min_support=min_support, pair_variance=pair_variance)
 
 
 def lambda_for_response(period, spacing, max_response=0.01):

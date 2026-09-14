@@ -53,7 +53,8 @@ from gpri_tools.aps import epoch_screen_correction, turbulence_screen    # noqa:
 from gpri_tools.geocode import BAKERBEND1_HEADING                        # noqa: E402
 from gpri_tools.glaciers import glacier_mask, load_outlines, stable_ground_mask  # noqa: E402
 from gpri_tools.heading import scene_heading                              # noqa: E402
-from gpri_tools.pathdelay import pair_delay_field, rewrap_to_chain        # noqa: E402
+from gpri_tools.pathdelay import (pair_delay_field,                      # noqa: E402
+                                  pair_variance_from_coherence, rewrap_to_chain)
 from gpri_tools.timeseries import los_displacement                        # noqa: E402
 
 
@@ -102,7 +103,6 @@ def main():
         lags=tuple(int(l) for l in args.lags),
         looks=tuple(int(l) for l in args.looks))
     mean_cc = cc.mean(axis=0)
-    del cc
 
     geom = decimated_geom(stack, args.decimate, heading)
     la_, lo_ = geom.geodetic(rows=[0, geom.shape[0] - 1],
@@ -115,8 +115,13 @@ def main():
     ice = (mean_cc >= args.ice_coherence) & glacier_mask(geom, gdf)
     show = mean_cc >= args.show_coherence
     trusted = ice | stable
+    # each pair is worth what its coherence over the trusted pixels says
+    pair_var = pair_variance_from_coherence(cc, trusted)
+    del cc
     print(f"{scene.name}: {n:,} pairs on a {phase.shape[1]} x {phase.shape[2]} "
-          f"grid; bedrock {stable.sum():,} px, ice {ice.sum():,} px")
+          f"grid; bedrock {stable.sum():,} px, ice {ice.sum():,} px; pair "
+          f"variance {pair_var.min():.3f}-{pair_var.max():.3f} from the "
+          "coherence over the trusted px")
 
     obs = (los_displacement(phase, stack.wavelength) * 1000.0).astype(np.float32)
     del phase
@@ -152,7 +157,8 @@ def main():
     t0 = time.time()
     field, lam = pair_delay_field(obs, pairs, times, trusted, weights=mean_cc,
                                   sigma=tuple(args.sigma), protect_period=args.protect_period,
-                                  max_response=args.max_response)
+                                  max_response=args.max_response,
+                                  pair_variance=pair_var)
     field = field.astype(np.float32)
     del obs
     print(f"path delay (lambda {lam:.4g}) in {time.time() - t0:.0f} s; "

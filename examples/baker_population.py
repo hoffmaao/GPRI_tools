@@ -59,6 +59,7 @@ from baker_aps import SCENES, integrate, load, split_mask          # noqa: E402
 from gpri_tools.aps import epoch_screen_correction, turbulence_screen    # noqa: E402
 from gpri_tools.diurnal import (DIURNAL, MIN_CYCLES, hour_composite,     # noqa: E402
                           m_per_yr, secular_slope)
+from gpri_tools.pathdelay import pair_variance_from_coherence          # noqa: E402
 from gpri_tools.timeseries import los_displacement                       # noqa: E402
 
 
@@ -138,7 +139,6 @@ def main():
     lam = stack.wavelength
     mean_cc = cc.mean(axis=0)
     usable = mean_cc >= args.ice_coherence
-    del cc
     stable = mean_cc >= args.stable_coherence
     geom = None
     if args.rgi:
@@ -160,6 +160,10 @@ def main():
     else:
         ice = usable & ~stable
     fit_m, held_m = split_mask(stable)
+    # each pair is worth what its coherence over the pixels the fit reads says;
+    # held-out bedrock scores this script, so it is not among them
+    pair_var = pair_variance_from_coherence(cc[:n], ice | fit_m)
+    del cc
     span = float(net.times[-1] * 24)
     print(f"{day}: {n} pairs over {span:.1f} h; ice {ice.sum():,} px, "
           f"bedrock {fit_m.sum():,} fit + {held_m.sum():,} held out")
@@ -204,7 +208,8 @@ def main():
         field, plam = displacement_delay_field(
             d, np.asarray(net.pairs[:n], int), np.asarray(net.times, float),
             trusted, weights=mean_cc, sigma=tuple(args.sigma),
-            protect_period=args.protect_period, max_response=args.max_response)
+            protect_period=args.protect_period, max_response=args.max_response,
+            pair_variance=pair_var)
         d -= field.astype(d.dtype)
         print(f"path delay (lambda {plam:.4g}) removed in {time.time() - t0:.0f} s; "
               f"field sd {1000 * np.nanstd(field):.3f} mm over "

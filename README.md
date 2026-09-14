@@ -121,7 +121,7 @@ above was built for, and it is the only example in this repository.
 
 ```bash
 pip install -e '.[all]'      # numpy, scipy + pyproj, rasterio, matplotlib
-pytest                       # 455 tests
+pytest                       # 469 tests
 ```
 
 Only `numpy` and `scipy` are required. `pyproj` and `rasterio` are needed for

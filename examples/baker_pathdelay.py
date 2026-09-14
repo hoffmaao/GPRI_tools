@@ -75,14 +75,17 @@ from gpri_tools.geocode import BAKERBEND1_HEADING, RadarGeometry           # noq
 from gpri_tools.glaciers import glacier_mask, load_outlines, stable_ground_mask  # noqa: E402
 from gpri_tools.heading import scene_heading                               # noqa: E402
 from gpri_tools.pathdelay import (discarded_rate, double_difference,       # noqa: E402
+                                  double_difference_row_weights,
                                   invert_path_delay, lambda_for_system_response,
-                                  pin_rate, rewrap_to_chain, select_lambda,
+                                  pair_variance_from_coherence, pin_rate,
+                                  rewrap_to_chain, select_lambda,
                                   system_response)
 from gpri_tools.refractivity import specific_humidity                      # noqa: E402
 from gpri_tools.timeseries import los_displacement                         # noqa: E402
 
-# version 4: the response curve of the operator inverted is cached with the run
-PATHDELAY_CACHE_VERSION = 4
+# version 5: the rows are weighted by the pairs' coherence, so a cached run
+# from before the weighting answers a different question
+PATHDELAY_CACHE_VERSION = 5
 
 #: flags that change what the cached numbers answer
 CACHE_ARGS = ("ice_coherence", "stable_coherence", "sigma", "lags", "looks",
@@ -133,14 +136,21 @@ def masks_for(scene, stack, mean_cc, args):
     return {"fit rock": fit, "held rock": held, "ice": ice}
 
 
-def per_pixel_delay(d, system, lam, times, pairs, chunk_rows=24):
-    """Invert every pixel with one factorisation, a block of rows at a time."""
-    A = system.A
+def per_pixel_delay(d, system, lam, times, pairs, chunk_rows=24, row_w=None):
+    """Invert every pixel with one factorisation, a block of rows at a time.
+
+    ``row_w`` weights the double differences, each by the worse of the two
+    pairs it is built from (:func:`double_difference_row_weights`).
+    """
+    sw = None if row_w is None else np.sqrt(row_w)
+    A = system.A if sw is None else system.A * sw[:, None]
     M = np.linalg.solve(A.T @ A + lam * np.eye(A.shape[1]), A.T)
     out = np.empty((A.shape[1],) + d.shape[1:], np.float32)
     for s in range(0, d.shape[1], chunk_rows):
         e = min(s + chunk_rows, d.shape[1])
         b = system.apply(d[:, s:e].astype(np.float64))
+        if sw is not None:
+            b = b * sw.reshape((-1,) + (1,) * (b.ndim - 1))
         x = np.tensordot(M, b.reshape(b.shape[0], -1), axes=(1, 0))
         x = x.reshape((A.shape[1],) + b.shape[1:])
         out[:, s:e] = pin_rate(x, times, pairs).astype(np.float32)
@@ -187,9 +197,14 @@ def compute(scene, name, args):
                                            lags=tuple(int(l) for l in args.lags),
                                            looks=tuple(int(l) for l in args.looks))
     mean_cc = cc.mean(axis=0)
-    del cc
     masks = masks_for(scene, stack, mean_cc, args)
     print("pixels: " + ", ".join(f"{k} {v.sum():,}" for k, v in masks.items()))
+    # each pair is worth what its coherence says, read over the pixels the
+    # fit reads: held-out bedrock scores the answer and never feeds it
+    pair_var = pair_variance_from_coherence(cc[:n], masks["fit rock"])
+    del cc
+    print(f"pair variance {pair_var.min():.3f}-{pair_var.max():.3f} "
+          "(Cramer-Rao, from the coherence over the fit half)")
 
     if args.debias:
         # Multilooking makes each baseline a distinct estimate, and with it the
@@ -225,37 +240,43 @@ def compute(scene, name, args):
     system = double_difference(pairs, times)
     print(f"{system.n_rows:,} double differences over {len(times):,} epochs, "
           f"baselines {system.spans.min() * 1440:.1f}-{system.spans.max() * 1440:.1f} min")
+    # the operator actually inverted is the weighted one, so the weight
+    # choice, the response and the per-pixel solve all read A_w
+    row_w = double_difference_row_weights(system.rows, pair_var, len(pairs))
+    A_w = system.A * np.sqrt(row_w)[:, None]
 
     scene_series = np.array([np.nanmean(x[masks["fit rock"]]) for x in d])
     if args.lam is None:
-        lam, _ = select_lambda(system.A, system.apply(scene_series), method="gcv")
+        lam, _ = select_lambda(A_w, system.apply(scene_series) * np.sqrt(row_w),
+                               method="gcv")
     else:
         lam = float(args.lam)
     if args.protect_period:
-        floor = lambda_for_system_response(system.A, times, args.protect_period,
+        floor = lambda_for_system_response(A_w, times, args.protect_period,
                                            args.max_response)
         if floor > lam:
             print(f"lambda {lam:.4g} from GCV raised to {floor:.4g} to hold "
                   f"{args.protect_period * 24:.0f} h at {args.max_response:.1%}")
         lam = max(lam, floor)
     labels = ("10 min", "1 h", "2 h", "12 h", "24 h")
-    gains = system_response(system.A, times,
+    gains = system_response(A_w, times,
                             np.array([1 / 144, 1 / 24, 1 / 12, 0.5, 1.0]), lam)
     print(f"lambda {lam:.4g}; the system returns "
           + ", ".join(f"{g:.3f} at {lab}" for g, lab in zip(gains, labels)))
 
     cadence = float(np.median(np.diff(times)))
     resp_periods = np.logspace(np.log10(2 * cadence), np.log10(2.0), 200)
-    response = np.asarray(system_response(system.A, times, resp_periods, lam), float)
+    response = np.asarray(system_response(A_w, times, resp_periods, lam), float)
 
-    loose = invert_path_delay(scene_series, pairs, times, lam=lam)
+    w_pair = 1.0 / pair_var
+    loose = invert_path_delay(scene_series, pairs, times, lam=lam, weights=w_pair)
     trend = float(discarded_rate(loose.delay, times, pairs))
     delays = {"scene": invert_path_delay(scene_series, pairs, times, lam=lam,
-                                         pin="rate").delay}
+                                         weights=w_pair, pin="rate").delay}
     print(f"trend the pinning discards: {m_per_yr(trend, 'mm'):+.2f} m/yr "
           "(unobservable: the affine part this system cannot see)")
     t0 = time.time()
-    cube = per_pixel_delay(d, system, lam, times, pairs)
+    cube = per_pixel_delay(d, system, lam, times, pairs, row_w=row_w)
     print(f"per-pixel inversion in {time.time() - t0:.0f} s")
     smooth = np.empty_like(cube)
     t0 = time.time()

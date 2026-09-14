@@ -82,24 +82,25 @@ an order of magnitude larger.
 ## The six campaigns
 
 Reduction in the scatter of apparent LOS velocity, per estimator, on the
-held-out bedrock the estimate never saw and on the coherent ice:
+held-out bedrock the estimate never saw and on the coherent ice, with the
+rows weighted by the pairs' coherence as the script does:
 
 | campaign | epochs | baselines (min) | lam | raised by the floor | response 2 h | response 24 h | `scene` rock | `pixel` rock | `smooth` rock | `smooth` ice | trend discarded (m/yr) |
 |---|---:|---|---:|---|---:|---:|---:|---:|---:|---:|---:|
-| `20170713_full` | 271 | 4.1–42.7 | 11.35 | from 0.014 | 0.966 | 0.010 | 65.6 % | 85.2 % | 3.9 % | 5.2 % | +0.03 |
-| `20170803_full` | 723 | 2.0–6.3 | 14.97 | no | 0.794 | 0.002 | 41.1 % | 84.0 % | 4.4 % | 7.8 % | −1.01 |
-| `20170827` | 1,335 | 2.0–19.3 | 0.698 | from 0.083 | 0.988 | 0.010 | 64.1 % | 90.4 % | 5.3 % | 9.7 % | +0.39 |
-| `20170913` | 437 | 2.0 | 5.82 | no | 0.892 | 0.005 | 56.5 % | 89.8 % | 2.9 % | 16.5 % | +0.06 |
-| `20180808` | 1,227 | 2.0–26.9 | 0.839 | from 0.083 | 0.981 | 0.010 | 62.4 % | 90.4 % | 5.0 % | 7.8 % | −0.69 |
-| `20190719` | 1,137 | 1.2–173.6 | 2.191 | from 0.750 | 0.957 | 0.010 | 56.9 % | 88.9 % | 5.6 % | 10.6 % | +1.22 |
+| `20170713_full` | 271 | 4.1–42.7 | 6.412 | from 0.023 | 0.975 | 0.010 | 69.4 % | 86.1 % | 3.9 % | 5.3 % | +0.08 |
+| `20170803_full` | 723 | 2.0–6.3 | 20.19 | no | 0.734 | 0.001 | 42.3 % | 83.2 % | 4.4 % | 7.7 % | −1.07 |
+| `20170827` | 1,335 | 2.0–19.3 | 0.878 | from 0.224 | 0.977 | 0.010 | 64.9 % | 89.5 % | 5.3 % | 9.7 % | +0.18 |
+| `20170913` | 437 | 2.0 | 7.647 | no | 0.864 | 0.004 | 58.4 % | 89.4 % | 2.9 % | 16.4 % | +0.22 |
+| `20180808` | 1,227 | 2.0–26.9 | 1.048 | from 0.173 | 0.973 | 0.010 | 66.9 % | 89.9 % | 5.0 % | 7.7 % | −1.31 |
+| `20190719` | 1,137 | 1.2–173.6 | 2.044 | from 0.269 | 0.950 | 0.010 | 60.4 % | 88.7 % | 5.6 % | 10.6 % | +1.52 |
 
 Held-out bedrock carries 12,369 to 23,034 pixels per campaign and the
 coherent ice 25,418 to 33,652; the fit and held halves are within one pixel
 of each other by construction.
 
 Three things the table says. The `scene` estimator, fitted on bedrock the
-score never uses, takes 41 to 66 % off the bedrock scatter. The `pixel`
-control takes 84 to 90 % off every mask including the held-out one — it is fitting each pixel's own noise, which is what a system
+score never uses, takes 42 to 69 % off the bedrock scatter. The `pixel`
+control takes 83 to 90 % off every mask including the held-out one — it is fitting each pixel's own noise, which is what a system
 with one unknown per epoch and one observation per pair does, and it is in
 the table to say that such a number measures nothing. Of that per-pixel
 field only the 2.9 to 5.6 % that survives spatial smoothing is coherent
@@ -140,9 +141,9 @@ design matrix rather than the data.
 
 What does change is the regularisation. The weight floor is computed on the
 operator it is given, and the longer baselines are more sensitive at long
-periods, so holding 24 h to 1 % takes `lam` from 1.92 to 75.0. The apparent
-improvement in the `pixel` control — 89.8 % of held-out bedrock scatter
-"removed" with the chain, 46.1 % with three lags — is that heavier
+periods, so holding 24 h to 1 % takes `lam` from 1.55 to 60.97. The apparent
+improvement in the `pixel` control — 89.4 % of held-out bedrock scatter
+"removed" with the chain, 46.2 % with three lags — is that heavier
 regularisation suppressing the overfitting, not extra observations
 constraining it.
 
@@ -167,24 +168,26 @@ an rms of 2.88 mm on every mask. `gpri_tools.pathdelay.rewrap_to_chain`
 (`--rewrap` in `baker_pathdelay.py`) moves each longer baseline by whole
 cycles onto the chain sum and leaves anything smaller than a cycle alone.
 That brings the closure to 0.000 mm, takes the scene estimator's held-out
-score from −33.2 % to −44.5 % (the chain alone: −41.1 %), its GCV weight
-from 1043.7 down to the 57.5 floor and its delay rms from 0.626 to
-1.713 mm; the smooth estimator (`pair_delay_field`, σ = (5, 25), 24 h held
-to 1 %) goes from −4.1 % to −6.9 % on held-out rock and from −6.4 % to
-−11.1 % on the ice, on an apparent-velocity scatter that the rewrap itself
-raises from 337.8 to 375.2 m/yr on held-out rock before any correction.
+score from −34.1 % to −49.2 % (the chain alone: −42.3 %), its GCV weight
+from 1,363 down to the 41.5 floor and its delay rms from 0.68 to
+2.36 mm; the smooth estimator (`pair_delay_field`, σ = (5, 25), 24 h held
+to 1 %, measured before the row weighting went into the scripts) goes from
+−4.1 % to −6.9 % on held-out rock and from −6.4 % to −11.1 % on the ice, on
+an apparent-velocity scatter that the rewrap itself raises from 337.8 to
+375.2 m/yr on held-out rock before any correction.
 (`baker_pathdelay.py --scene 20170803_full --lags 1 2 3 --rewrap`, whose
 `smooth` row is the per-pixel cube Gaussian-filtered rather than
-`pair_delay_field`, prints for held-out rock 69.8 → 38.8 m/yr, 44.5 %, on
-the scene estimator, 375.2 → 61.2, 83.7 %, per pixel and 375.2 → 353.2,
-5.8 %, smoothed, and 15.3 %, 82.4 % and 9.6 % on the ice.) On the
+`pair_delay_field`, prints for held-out rock 69.8 → 35.5 m/yr, 49.2 %, on
+the scene estimator, 375.2 → 60.0, 84.0 %, per pixel and 375.2 → 353.1,
+5.9 %, smoothed, and 16.8 %, 82.8 % and 9.7 % on the ice.) On the
 multilooked `20170913` (3 × 15 looks, 1,305 pairs, 437 epochs) the same
 operation moves 3.0 % of the fit-rock samples at lag 2 and 4.0 % at lag 3
 (0.6 % and 1.2 % of the ice; 27 % and 34 % of all finite pixels), takes the
 per-pixel lag-2 closure from 1.41 to 0.64 mm on rock and 0.65 to 0.18 mm on
-ice, and changes the scores by at most 2.4 points: scene −56.2 % → −56.3 %,
-smooth −12.9 % → −11.7 % on held-out rock and −34.4 % → −36.8 % on the ice,
-with the held-out scatter before correction going 167.8 → 182.2 m/yr.
+ice, and changes the scores by at most 2.4 points: scene −59.3 % → −59.5 %,
+smooth −12.9 % → −11.7 % on held-out rock and −34.4 % → −36.8 % on the ice
+(those two also from the unweighted `pair_delay_field`), with the held-out
+scatter before correction going 167.8 → 182.2 m/yr.
 
 The other option is to leave the pairs where they are and let the fit
 weight them down. `robust=2` (`invert_path_delay`, `pair_delay_field`) runs
@@ -240,10 +243,10 @@ this to long baselines, and expect it to do nothing at short ones.
 
 | estimator | single look, dec 16 | 3 x 15 looks, lags 1+2+3 |
 |---|---:|---:|
-| `scene` | 56.5 % | 56.2 % |
-| `pixel` (the self-fitting control) | 89.8 % | 55.0 % |
+| `scene` | 58.4 % | 59.3 % |
+| `pixel` (the self-fitting control) | 89.4 % | 55.1 % |
 | `smooth` | **2.9 %** | **10.8 %** |
-| `smooth`, on ice | 16.5 % | 31.3 % |
+| `smooth`, on ice | 16.4 % | 31.4 % |
 
 The `scene` estimator is unmoved, because a per-epoch scalar was never
 noise-limited. The `pixel` control falls because 45 looks leave it much less
@@ -313,9 +316,15 @@ on held-out bedrock that never fed the estimate, all three floored to 1 % at
 
 So the useful change is the cheap one: keep the poster's double-difference
 form and weight the rows by coherence. The pair variance is the Cramer-Rao
-form `(1 - g^2) / (2 g^2)`; over the fit half of `20170913` the pair
-coherences run 0.70 to 0.82, a two-fold spread in variance, and weighting by
-it is worth two and a half points of scatter at no cost in selectivity.
+form `(1 - g^2) / (2 g^2)`, which `pair_variance_from_coherence` builds from
+each pair's mean coherence over the pixels the fit reads; over the fit half
+of `20170913` the pair coherences run 0.70 to 0.82, a two-fold spread in
+variance, and weighting by it is worth two and a half points of scatter at no
+cost in selectivity. Each row differences two pairs and so is weighted by the
+worse of them (`double_difference_row_weights`). The Baker examples pass it:
+`baker_pathdelay.py`, `baker_delay_movie.py`, `baker_catchments.py` and
+`baker_population.py` all weight their fits this way, so the figures and
+movies in this repository are the WLS row of the table, not the poster row.
 
 `gls_path_delay` stays because it is the right tool when the constraint is
 absent — estimating the delay itself as well as possible, or wanting the
@@ -347,8 +356,8 @@ past several times the 1 % it promises.
 
 Protecting a slow period is cheap at fast ones, because the operator's gain
 falls as `1 / T^2`. Holding 24 h to 1 % on `20170713_full` raises `lam` from
-0.014 to 11.35 and still returns 100 % at 10 minutes, 99.5 % at 1 h and 96.6 %
-at 2 h. The period to watch is the semidiurnal one, which keeps 4.5 %. With
+0.023 to 6.412 and still returns 100 % at 10 minutes, 99.6 % at 1 h and 97.5 %
+at 2 h. The period to watch is the semidiurnal one, which keeps 6.7 %. With
 the floor in place the campaign that lost 27 % of its diurnal loses 0.3 %.
 
 ## What it is worth on top of the ladder
