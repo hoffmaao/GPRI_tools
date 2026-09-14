@@ -19,6 +19,15 @@ name: `gpri focus` starts from the BakerBend recipe (`focus.baker_options`),
 and `geocode.BAKERBEND1_HEADING` is the scan heading the examples fall back
 to when a scene has none measured.
 
+![Path delay and LOS displacement, 2017-09-15](docs/figures/29_delay_movie_20170913_lk3x15.gif)
+
+*The 2017-09-15 record at 3 × 15 looks: the atmospheric path delay of each
+acquisition (left) and the line-of-sight displacement left once the
+correction ladder and that delay have been taken off (right), with both as
+ice-mean curves below; local night is shaded. Rendered by
+`examples/baker_delay_movie.py`; the full-rate movie is
+`docs/figures/29_delay_movie_20170913_lk3x15.mp4`.*
+
 ## What it does
 
 ```
@@ -238,6 +247,8 @@ for s in $CAMPAIGNS 20180709; do
   python examples/baker_delay_movie.py --scene $s --lags 1 2 3 --looks 3 15 --decimate 1 --rewrap
 done
 python examples/baker_delay_movie.py --scene 20170913 --rewrap --refractivity   # the same as N-units
+# the animation at the top of this page: that movie as a GIF, 10 fps at 800 px
+ffmpeg -i docs/figures/29_delay_movie_20170913_lk3x15.mp4 -vf "fps=10,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" -loop 0 docs/figures/29_delay_movie_20170913_lk3x15.gif
 ```
 
 `bin/run_scene.sh <scene> [upper|lower|both]` runs the deformation chain for
