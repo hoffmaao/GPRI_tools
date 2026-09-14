@@ -188,7 +188,7 @@ correct next lever (and what `gpri_tools.phaselink` is for). Treat ~20 mm per pi
 at 22 h as the single-look noise floor of these stacks, not as an atmospheric
 residual.
 
-**4. Closure phase is now measured on real data** (`13_closure_20160826.png`).
+**4. Closure phase is now measured on real data.**
 The merged single-reference + chain networks of 20160826 give 25 triangles.
 On 1-look pixels closure is identically zero — an algebraic fact worth knowing
 before anyone runs a closure analysis on unlooked data (it also end-to-end

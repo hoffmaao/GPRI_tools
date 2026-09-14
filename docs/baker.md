@@ -46,12 +46,6 @@ not catch it (r = −0.015) because it is not range-dependent, it is *constant*.
 The bedrock null does. Reference pixels are held out of that null, or the
 test is circular.
 
-![Bedrock and ice share one diurnal curve when unreferenced](figures/08a_diurnal_unreferenced.png)
-
-*An unreferenced series. Bottom right: the bedrock null (red) traces the same
-curve as the ice (blue), offset by a constant. Bottom left: the artefact is
-flat in range, not sloped, which is why the range test misses it.*
-
 A geometry note for anyone reading vertical motion off a LOS series: at a
 beam elevation of 10°, LOS sensitivity to vertical motion is `sin(10°) =
 0.17` against `cos(10°) = 0.98` for horizontal, and 0.17 is what

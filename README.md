@@ -19,13 +19,6 @@ name: `gpri focus` starts from the BakerBend recipe (`focus.baker_options`),
 and `geocode.BAKERBEND1_HEADING` is the scan heading the examples fall back
 to when a scene has none measured.
 
-![LOS displacement, north side of Mount Baker](docs/figures/04_displacement.png)
-
-*LOS displacement over 6.7 hours on the north side of Mount Baker, from 200
-consecutive BakerBend1 interferograms, projected to a local stereographic
-frame. Backdrop is mean backscatter; areas below coherence 0.5 are masked —
-beyond about 8 km the beam is in shadow behind the mountain.*
-
 ## What it does
 
 ```
@@ -183,8 +176,6 @@ Reproduce the figures in `docs/figures/` (the scripts cache the decimated
 day under `GPRI_WORK_ROOT`, so only the first one pays for the read):
 
 ```bash
-python examples/baker_north_side.py --pairs 200 --decimate 8 --spacing 25
-python examples/baker_diurnal.py --decimate 16        # full day + the three tests
 python examples/baker_aps.py --scene 20170803 --decimate 16 --sigma 5 25 --rgi --screens-on-bedrock
 python examples/baker_rgi.py --scene 20170803 --decimate 16
 python examples/baker_pairlsq.py --scene 20170803 --decimate 16 --rgi
