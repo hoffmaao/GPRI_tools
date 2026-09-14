@@ -119,6 +119,9 @@ def shared_epoch_triplets(pairs, times=None, max_span=None, max_triplets=None):
     (m, 2) int array of pair indices.
     """
     pr = np.asarray(pairs, int).reshape(-1, 2)
+    if max_span is not None and times is None:
+        raise ValueError("max_span needs times")
+    t = None if times is None else np.asarray(times, float)
     starts = {}
     for q, (i, _) in enumerate(pr):
         starts.setdefault(i, []).append(q)
@@ -130,9 +133,6 @@ def shared_epoch_triplets(pairs, times=None, max_span=None, max_triplets=None):
             if k == i:
                 continue                       # a closed loop, not a triplet
             if max_span is not None:
-                if times is None:
-                    raise ValueError("max_span needs times")
-                t = np.asarray(times, float)
                 if abs(t[k] - t[i]) > max_span:
                     continue
             rows.append((p, q))
@@ -543,17 +543,32 @@ def pin_affine(delay, times, axis=0):
     The inversion's answer is unique only up to ``alpha + beta t``, so the
     number worth quoting is the one with both removed.  Everything the
     affine part carried is in the velocity instead.
+
+    Each pixel is fitted on its own finite epochs, so a pixel that is masked
+    at every epoch — an incoherent one — costs nothing but itself; a pixel
+    with fewer than two distinct finite epochs keeps its trend, there being
+    nothing to fit it on, and only its mean comes off.
     """
     a = np.asarray(delay, float)
     t = np.asarray(times, float)
     if a.shape[axis] != t.size:
         raise ValueError(f"delay has {a.shape[axis]} epochs, times {t.size}")
     a = np.moveaxis(a, axis, 0)
-    basis = np.column_stack([np.ones_like(t), t - t.mean()])
+    x = t - t.mean()
     flat = a.reshape(t.size, -1)
-    finite = np.isfinite(flat).all(axis=1)
-    coef, *_ = np.linalg.lstsq(basis[finite], flat[finite], rcond=None)
-    out = (flat - basis @ coef).reshape(a.shape)
+    good = np.isfinite(flat)
+    y = np.where(good, flat, 0.0)
+    w = good.astype(float)
+    s0, s1, s2 = w.sum(axis=0), x @ w, (x ** 2) @ w
+    sy, sxy = y.sum(axis=0), x @ y
+    det = s0 * s2 - s1 ** 2
+    fit = det > 1e-12 * np.maximum(s0 * s2, 1.0)       # two distinct epochs
+    mean_only = ~fit & (s0 > 0)
+    safe = np.where(fit, det, 1.0)
+    alpha = np.where(fit, (s2 * sy - s1 * sxy) / safe, 0.0)
+    beta = np.where(fit, (s0 * sxy - s1 * sy) / safe, 0.0)
+    alpha[mean_only] = sy[mean_only] / s0[mean_only]
+    out = (flat - (alpha + beta * x[:, None])).reshape(a.shape)
     return np.moveaxis(out, 0, axis)
 
 
@@ -837,12 +852,20 @@ def response_from_resolution(R, times, period):
     before claiming a correction did or did not touch a signal.  Every
     estimator here is judged by the same measure; only the way ``R`` is built
     differs.
+
+    ``period`` may be an array, and the gain then comes back with its shape —
+    a response curve costs one ``R`` rather than one per period.
     """
     t = np.asarray(times, float)
-    w = 2.0 * np.pi / float(period)
-    H = np.column_stack([np.cos(w * t), np.sin(w * t)])
-    H = H / np.linalg.norm(H, axis=0)
-    return float(np.linalg.norm(np.asarray(R, float) @ H, axis=0).max())
+    R = np.asarray(R, float)
+    T = np.asarray(period, float)
+    gains = np.empty(T.size)
+    for i, p in enumerate(T.reshape(-1)):
+        w = 2.0 * np.pi / float(p)
+        H = np.column_stack([np.cos(w * t), np.sin(w * t)])
+        H = H / np.linalg.norm(H, axis=0)
+        gains[i] = float(np.linalg.norm(R @ H, axis=0).max())
+    return float(gains[0]) if T.ndim == 0 else gains.reshape(T.shape)
 
 
 def system_response(A, times, period, lam):
@@ -853,6 +876,8 @@ def system_response(A, times, period, lam):
     more sensitive at long periods, so the closed form understates what gets
     through.  This measures it on the operator actually being inverted:
     ``M A`` is ``V diag(s^2 / (s^2 + lam)) V^T``.
+
+    ``period`` may be an array — the whole curve for one SVD of ``A``.
     """
     _, s_, Vt = np.linalg.svd(np.asarray(A, float), full_matrices=False)
     f = s_ ** 2 / (s_ ** 2 + float(lam))

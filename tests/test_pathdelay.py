@@ -66,6 +66,12 @@ def test_max_span_drops_the_long_triplets():
         assert abs(net.times[k] - net.times[i]) <= 2.5 * CADENCE + 1e-12
 
 
+def test_max_span_without_times_is_refused():
+    net = _chain(n_epochs=10, lags=(1, 3))
+    with pytest.raises(ValueError, match="needs times"):
+        shared_epoch_triplets(net.pairs, max_span=2.5 * CADENCE)
+
+
 def test_max_triplets_thins_the_list():
     net = _chain(n_epochs=30, lags=(1, 2))
     rows = shared_epoch_triplets(net.pairs, net.times, max_triplets=10)
@@ -310,6 +316,39 @@ def test_pin_affine_works_along_a_chosen_axis():
     assert np.allclose(pin_affine(a.T, t, axis=1), 0.0, atol=1e-9)
 
 
+def test_pin_affine_pins_pixels_beside_one_that_is_never_finite():
+    """An incoherent pixel must not leave the whole cube unpinned."""
+    t = np.linspace(0, 1, 5)
+    a = np.zeros((5, 2, 2))
+    a[:, 0, 0] = np.nan                     # masked at every epoch
+    a[:, 1, 1] = 3.0 * t + 7.0
+    out = pin_affine(a, t)
+    assert np.allclose(out[:, 1, 1], 0.0, atol=1e-9)
+    assert np.all(np.isnan(out[:, 0, 0]))
+
+
+def test_pin_affine_fits_each_pixel_on_its_own_finite_epochs():
+    rng = np.random.default_rng(11)
+    t = np.linspace(0, 1, 24)
+    a = np.column_stack([2.0 - 0.5 * t, rng.normal(0, 1.0, t.size) + 4.0 * t])
+    a[:12, 0] = np.nan                      # a gap in one pixel only
+    out = pin_affine(a, t)
+    for col in range(a.shape[1]):
+        ok = np.isfinite(out[:, col])
+        assert abs(float(out[ok, col].mean())) < 1e-9
+        assert abs(float(np.polyfit(t[ok], out[ok, col], 1)[0])) < 1e-9
+
+
+def test_pin_affine_takes_the_mean_off_a_single_epoch_pixel():
+    t = np.linspace(0, 1, 6)
+    a = np.full((6, 2), np.nan)
+    a[2, 0] = 5.0                           # one finite epoch: no trend to fit
+    a[:, 1] = 1.0 + 2.0 * t
+    out = pin_affine(a, t)
+    assert out[2, 0] == 0.0
+    assert np.allclose(out[:, 1], 0.0, atol=1e-9)
+
+
 def test_unpinned_solution_keeps_the_regularised_offset():
     rng = np.random.default_rng(29)
     net = _chain(n_epochs=30, lags=(1, 2))
@@ -538,6 +577,17 @@ def test_system_response_exceeds_the_single_baseline_formula():
     A = double_difference(net.pairs, net.times).A
     lam = lambda_for_response(1.0, CADENCE, 0.01)         # the closed form
     assert system_response(A, net.times, 1.0, lam) > 0.01
+
+
+def test_system_response_takes_a_period_array():
+    net = _chain(n_epochs=30, lags=(1, 2))
+    A = double_difference(net.pairs, net.times).A
+    periods = np.array([1 / 24, 1 / 12, 0.5, 1.0])
+    curve = system_response(A, net.times, periods, 1.0)
+    assert curve.shape == periods.shape
+    assert np.allclose(curve, [system_response(A, net.times, T, 1.0)
+                               for T in periods])
+    assert np.all(np.diff(curve) < 0)                    # falls with period
 
 
 def test_lambda_for_system_response_is_the_smallest_that_works():

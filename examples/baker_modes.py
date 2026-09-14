@@ -282,7 +282,7 @@ def figure(c, name, args):
 
     ax = axes[1, 0]
     i = diurnal_mode(c)
-    own, interp, r = transfer(c, i)
+    own, interp, _ = transfer(c, i)
     lim = float(np.nanpercentile(np.abs(own), 99)) or 1.0
     ax.scatter(interp, own, s=2, color="k", alpha=0.25, lw=0)
     ax.plot([-lim, lim], [-lim, lim], color="0.6", lw=0.7, ls=":")
@@ -290,8 +290,6 @@ def figure(c, name, args):
     ax.set_ylim(-lim, lim)
     ax.set_xlabel("Interpolated loading")
     ax.set_ylabel("Own loading")
-    ax.text(0.03, 0.95, f"mode {i + 1}, r = {r:.2f}", transform=ax.transAxes,
-            va="top", fontsize=9)
     ax.grid(alpha=0.3)
 
     ax = axes[1, 1]

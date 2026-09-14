@@ -39,9 +39,10 @@ method cannot observe, in the units it would be mistaken for.
 What the correction can reach is set by the operator, not by the data.  A
 component of period T enters the double differences weighted by
 4 sin^2(pi dt / T) / dt, which vanishes as T grows; with the regularisation
-chosen here the gain is ~1 at an hour and ~5e-4 at a day, and the figure's
-response panel says so per campaign.  A diurnal signal, of either origin,
-passes through this correction untouched.
+chosen here the gain is ~1 at an hour and 0.002 to 0.010 at a day, measured
+on the operator actually inverted, and the figure's response panel says so
+per campaign.  A diurnal signal, of either origin, passes through this
+correction untouched.
 
 Outputs `figures/28_pathdelay_<scene>.png` and caches the series, the maps
 and the scoring table in `work/<scene>/pathdelay_u_dec16.npz`.
@@ -74,14 +75,14 @@ from gpri_tools.geocode import BAKERBEND1_HEADING, RadarGeometry           # noq
 from gpri_tools.glaciers import glacier_mask, load_outlines, stable_ground_mask  # noqa: E402
 from gpri_tools.heading import scene_heading                               # noqa: E402
 from gpri_tools.pathdelay import (discarded_rate, double_difference,       # noqa: E402
-                                  frequency_response, invert_path_delay,
-                                  lambda_for_system_response, pin_rate,
-                                  rewrap_to_chain, select_lambda,
+                                  invert_path_delay, lambda_for_system_response,
+                                  pin_rate, rewrap_to_chain, select_lambda,
                                   system_response)
 from gpri_tools.refractivity import specific_humidity                      # noqa: E402
 from gpri_tools.timeseries import los_displacement                         # noqa: E402
 
-PATHDELAY_CACHE_VERSION = 3
+# version 4: the response curve of the operator inverted is cached with the run
+PATHDELAY_CACHE_VERSION = 4
 
 #: flags that change what the cached numbers answer
 CACHE_ARGS = ("ice_coherence", "stable_coherence", "sigma", "lags", "looks",
@@ -242,6 +243,10 @@ def compute(scene, name, args):
                       for T, lab in ((1 / 144, "10 min"), (1 / 24, "1 h"),
                                      (1 / 12, "2 h"), (0.5, "12 h"), (1.0, "24 h"))))
 
+    cadence = float(np.median(np.diff(times)))
+    resp_periods = np.logspace(np.log10(2 * cadence), np.log10(2.0), 200)
+    response = np.asarray(system_response(system.A, times, resp_periods, lam), float)
+
     loose = invert_path_delay(scene_series, pairs, times, lam=lam)
     trend = float(discarded_rate(loose.delay, times, pairs))
     delays = {"scene": invert_path_delay(scene_series, pairs, times, lam=lam,
@@ -295,7 +300,8 @@ def compute(scene, name, args):
             "range_km": (r / 1000.0).astype(np.float32),
             "humidity": (lambda q: np.full(len(times), np.nan) if q is None
                          else q[:len(times)])(humidity_at_epochs(name)),
-            "lam": float(lam), "cadence_days": float(np.median(np.diff(times))),
+            "lam": float(lam), "cadence_days": cadence,
+            "response_periods": resp_periods, "response": response,
             "discarded_rate": m_per_yr(trend, "mm"),
             "n_pixels": np.array([masks[k].sum() for k in MASKS]),
             "cache_version": PATHDELAY_CACHE_VERSION, "antenna": args.antenna,
@@ -366,9 +372,7 @@ def figure(c, name, args):
     fig.colorbar(im, ax=ax, label="Path delay (mm)")
 
     ax = axes[1, 1]
-    periods = np.logspace(np.log10(2 * c["cadence_days"]), np.log10(2.0), 200)
-    ax.semilogx(periods * 24.0, frequency_response(periods, c["cadence_days"], c["lam"]),
-                color="k", lw=1.0)
+    ax.semilogx(c["response_periods"] * 24.0, c["response"], color="k", lw=1.0)
     for hours in (1.0, 24.0):
         ax.axvline(hours, color="0.6", lw=0.7, ls=":")
     ax.set_xlabel("Period (hr)")

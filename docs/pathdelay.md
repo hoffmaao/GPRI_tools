@@ -114,9 +114,9 @@ row, on every mask — that is `pin_rate` holding, not a result.
 estimate over bedrock and the `smooth` field averaged over ice — against the
 specific humidity at the radar epochs. Top right, the apparent LOS velocity
 of the held-out bedrock before and after the correction. Bottom left, the
-smoothed delay field at one epoch. Bottom right, the response of the
-inversion against period, with one hour and one day marked. Local night
-(00–06) is shaded.*
+smoothed delay field at one epoch. Bottom right, `system_response` — the
+gain of the operator inverted — against period, with one hour and one day
+marked. Local night (00–06) is shaded.*
 
 ## Several temporal baselines — and why they add nothing at single look
 

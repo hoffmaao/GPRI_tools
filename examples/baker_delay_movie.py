@@ -219,13 +219,15 @@ def main():
             ax.set_ylim(max(rows_.min() - pad, 0), min(rows_.max() + pad, seen.shape[0] - 1))
     for ax in (ax_a, ax_i):
         ax.set_xticks([]); ax.set_yticks([])
+    line_a, = ax_t.plot(t_utc, ice_delay, color="tab:green", lw=0.9, label="delay")
+    ax_u = ax_t.twinx() if args.refractivity else ax_t
+    line_u, = ax_u.plot(t_utc, ice_disp, color="k", lw=0.9, label="displacement")
+    ax_t.set_ylabel("Ice mean (N)" if args.refractivity else "Ice mean (mm)")
     if args.refractivity:
-        ice_delay = np.array([np.nanmean(x[ice]) for x in field])
-    ax_t.plot(t_utc, ice_delay, color="tab:green", lw=0.9, label="delay")
-    ax_t.plot(t_utc, ice_disp, color="k", lw=0.9, label="displacement")
-    ax_t.set_ylabel("Ice mean" if args.refractivity else "Ice mean (mm)")
+        ax_u.set_ylabel("Ice mean (mm)")
     ax_t.set_xlabel("Time (UTC)")
-    ax_t.legend(loc="upper left", fontsize=8, frameon=False, ncol=2)
+    ax_u.legend([line_a, line_u], [line_a.get_label(), line_u.get_label()],
+                loc="upper left", fontsize=8, frameon=False, ncol=2)
     ax_t.grid(alpha=0.3)
     shade_local_nights(ax_t, t_utc[0], t_utc[-1], args.utc_offset)
     ax_t.set_xlim(t_utc[0], t_utc[-1])

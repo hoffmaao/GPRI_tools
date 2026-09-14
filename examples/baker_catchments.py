@@ -57,6 +57,10 @@ CATCHMENTS_CACHE_VERSION = 2
 # cache built under different ones answers a different question
 MASK_ARGS = ("ice_coherence", "stable_coherence", "min_pixels", "sigma")
 
+# and the flags that decide what the --path-delay stage takes out; they mean
+# nothing to a run without it, so they are only checked when it is on
+PATH_DELAY_ARGS = ("protect_period", "max_response")
+
 
 def catchments_path(scene: Path, antenna: str, dec: int, path_delay=False) -> Path:
     """Where the catchment means are cached.
@@ -74,8 +78,9 @@ def load_catchments(scene: Path, args):
     """The cached catchment means, or ``(None, reason)`` if they cannot be used.
 
     A cache stamped below ``CATCHMENTS_CACHE_VERSION`` holds a catchment set
-    the code no longer builds, and one built under different mask flags is an
-    answer to a different question; either way it has to be rebuilt.
+    the code no longer builds, and one built under different mask flags — or,
+    with ``--path-delay``, under a different weight floor — is an answer to a
+    different question; either way it has to be rebuilt.
     """
     cache = catchments_path(scene, args.antenna, args.decimate, args.path_delay)
     if not cache.exists():
@@ -83,7 +88,7 @@ def load_catchments(scene: Path, args):
     c = dict(np.load(cache, allow_pickle=False))
     if int(c.get("cache_version", 0)) < CATCHMENTS_CACHE_VERSION:
         return None, f"older than cache version {CATCHMENTS_CACHE_VERSION}"
-    for k in MASK_ARGS:
+    for k in MASK_ARGS + (PATH_DELAY_ARGS if args.path_delay else ()):
         want = np.atleast_1d(np.asarray(getattr(args, k), float))
         have = np.atleast_1d(np.asarray(c.get(k, np.nan), float))
         if have.shape != want.shape or not np.array_equal(have, want):
@@ -161,7 +166,8 @@ def compute(scene, args):
             "decimate": args.decimate, "window": args.window,
             "utc_offset": args.utc_offset,
             "path_delay": np.asarray(bool(args.path_delay)),
-            **{k: np.asarray(getattr(args, k), float) for k in MASK_ARGS}}
+            **{k: np.asarray(getattr(args, k), float)
+               for k in MASK_ARGS + PATH_DELAY_ARGS}}
 
 
 def figure(c, melt, name, args):
