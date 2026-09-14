@@ -25,7 +25,8 @@ baseline is first moved by whole cycles onto the chain it spans
 (`gpri_tools.pathdelay.rewrap_to_chain`), as `baker_pathdelay.py --rewrap`
 does.
 
-Display smoothing is for the eye only and is declared on the frame.
+Display smoothing is for the eye only; the frames carry no text, the cursor
+on the time strip is the clock.
 """
 from __future__ import annotations
 
@@ -229,12 +230,6 @@ def main():
     shade_local_nights(ax_t, t_utc[0], t_utc[-1], args.utc_offset)
     ax_t.set_xlim(t_utc[0], t_utc[-1])
     cursor = ax_t.axvline(t_utc[0], color="0.4", lw=1.0)
-    stamp = ax_a.text(0.02, 0.97, "", transform=ax_a.transAxes, va="top",
-                      fontsize=9, color="0.15")
-    note = (f"{args.looks[0]}x{args.looks[1]} looks, lags "
-            f"{'+'.join(map(str, args.lags))}{' rewrapped' if args.rewrap else ''}; "
-            f"display: {W}-epoch mean, Gaussian {args.s_smooth[0]:g}x{args.s_smooth[1]:g} px")
-    ax_i.text(0.02, 0.03, note, transform=ax_i.transAxes, fontsize=7, color="0.35")
     fig.tight_layout()
 
     tag = f"_lk{args.looks[0]}x{args.looks[1]}" + ("_N" if args.refractivity else "")
@@ -248,7 +243,6 @@ def main():
             im_a.set_data(res(field[k]))
             im_i.set_data(res(d[k]))
             cursor.set_xdata([t_utc[k], t_utc[k]])
-            stamp.set_text(t_utc[k].strftime("%Y-%m-%d %H:%M UTC"))
             writer.grab_frame()
     plt.close(fig)
     print(f"wrote {out}  ({len(list(keep))} frames, "
