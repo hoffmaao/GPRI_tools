@@ -45,10 +45,11 @@ class RockModes:
     ----------
     temporal : (n_epochs, k) array
         Mode series, in the residual's units **at unit loading**: each mode's
-        loading is scaled to RMS 1 over the fitted pixels *weighted*, so a
-        series is the size of the mode in a pixel that carries it at the
-        typical amount.  The plain RMS equals it only when the weights are
-        equal; at coherence weights near 0.7 it is about 1.19.
+        loading is scaled so the weighted mean square over the fitted pixels
+        is 1, whatever the weights, so a series is the size of the mode in a
+        pixel that carries it at the typical amount.  The plain RMS equals it
+        only at weights of 1; at coherence weights near 0.7 it is about
+        1.19.
     loading : (k, ...) array
         Per-pixel loading of each mode on the residual's grid, NaN where the
         pixel was not fitted.

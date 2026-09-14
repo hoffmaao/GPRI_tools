@@ -907,6 +907,14 @@ def test_robust_solves_each_pixel_on_its_own():
     assert np.sqrt(np.mean((pd.delay[:, 1] - a) ** 2)) < 0.1
 
 
+def test_pair_delay_field_refuses_a_series_with_no_spatial_axis():
+    net = _chain(n_epochs=12, lags=(1, 2))
+    rng = np.random.default_rng(7)
+    obs = rng.normal(0, 1.0, len(net.pairs))
+    with pytest.raises(ValueError, match="spatial axis"):
+        pair_delay_field(obs, net.pairs, net.times, np.ones((1, 1), bool))
+
+
 def test_pair_delay_field_takes_the_robust_path():
     rng = np.random.default_rng(154)
     net = _chain(n_epochs=40, lags=(1, 2))

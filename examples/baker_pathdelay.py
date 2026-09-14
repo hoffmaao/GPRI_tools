@@ -238,10 +238,11 @@ def compute(scene, name, args):
             print(f"lambda {lam:.4g} from GCV raised to {floor:.4g} to hold "
                   f"{args.protect_period * 24:.0f} h at {args.max_response:.1%}")
         lam = max(lam, floor)
+    labels = ("10 min", "1 h", "2 h", "12 h", "24 h")
+    gains = system_response(system.A, times,
+                            np.array([1 / 144, 1 / 24, 1 / 12, 0.5, 1.0]), lam)
     print(f"lambda {lam:.4g}; the system returns "
-          + ", ".join(f"{system_response(system.A, times, T, lam):.3f} at {lab}"
-                      for T, lab in ((1 / 144, "10 min"), (1 / 24, "1 h"),
-                                     (1 / 12, "2 h"), (0.5, "12 h"), (1.0, "24 h"))))
+          + ", ".join(f"{g:.3f} at {lab}" for g, lab in zip(gains, labels)))
 
     cadence = float(np.median(np.diff(times)))
     resp_periods = np.logspace(np.log10(2 * cadence), np.log10(2.0), 200)

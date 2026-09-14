@@ -702,6 +702,8 @@ def pair_delay_field(observations, pairs, times, mask, weights=None,
     ----------
     observations : (n_pairs, ...) array
         LOS displacement per pair, ``d_j - d_i``, in any consistent unit.
+        At least one spatial axis is needed — the answer is a field, and
+        ``sigma`` carries one entry per axis of it.
     mask : bool array
         Where the delay may be fitted — the coherent pixels. Smoothing the raw
         per-pixel field over the whole frame instead drags in delays fitted on
@@ -733,6 +735,8 @@ def pair_delay_field(observations, pairs, times, mask, weights=None,
     from .aps import turbulence_screen
 
     obs = np.asarray(observations, float)
+    if obs.ndim < 2:
+        raise ValueError("observations need at least one spatial axis")
     pr = np.asarray(pairs, int).reshape(-1, 2)
     t = np.asarray(times, float)
     sysd = double_difference(pr, t)
@@ -761,7 +765,7 @@ def pair_delay_field(observations, pairs, times, mask, weights=None,
 
     M = np.linalg.solve(A.T @ A + lam * np.eye(A.shape[1]), A.T)
     cube = np.empty((A.shape[1],) + obs.shape[1:], float)
-    rows = obs.shape[1] if obs.ndim > 1 else 1
+    rows = obs.shape[1]
     for s in range(0, rows, int(chunk_rows)):
         e = min(s + int(chunk_rows), rows)
         b = sysd.apply(obs[:, s:e])
@@ -772,8 +776,7 @@ def pair_delay_field(observations, pairs, times, mask, weights=None,
         if int(robust) > 0:
             # only the trusted pixels are read by the screen, so only they
             # get the per-pixel sweeps
-            sel = (np.flatnonzero(np.asarray(mask, bool)[s:e].ravel())
-                   if obs.ndim > 1 else np.arange(b2.shape[1]))
+            sel = np.flatnonzero(np.asarray(mask, bool)[s:e].ravel())
             if sel.size:
                 x[:, sel], _, _ = _robust_tikhonov(
                     A, b2[:, sel], lam, int(robust), sysd.rows, coef,

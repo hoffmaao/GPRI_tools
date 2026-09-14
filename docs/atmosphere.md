@@ -230,9 +230,9 @@ how that residual is organised, and `examples/baker_modes.py` runs it:
 the post-ladder residual over the fitted half, each pixel centred and
 scaled by the square root of its mean coherence, is decomposed by SVD into
 **temporal modes** (epoch series in mm at unit loading) and **loadings**
-(how much of each series a pixel carries, scaled to RMS 1 over the fitted
-pixels weighted — the plain RMS is 1 only at equal weights, and 1.17–1.19
-here),
+(how much of each series a pixel carries, scaled so the coherence-weighted
+mean square over the fitted pixels is 1, whatever the weights — the plain RMS
+equals it only at weights of 1, and here it is 1.17–1.19),
 against a null made by shuffling each pixel's epochs, which keeps every
 pixel's variance and destroys the temporal structure. The held-out half,
 which never enters the decomposition, is then scored two ways:

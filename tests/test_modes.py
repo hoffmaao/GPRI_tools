@@ -53,6 +53,20 @@ def test_mode_scaling_is_unit_loading():
     assert abs(modes.temporal[:, 0].mean()) < 1e-10
 
 
+def test_loading_scale_is_the_weighted_mean_square_whatever_the_weights():
+    rng, t, series, fit, held = _grid(3)
+    loading = 2.0 * rng.standard_normal(SHAPE)
+    d = _residual(rng, series, loading, noise=0.02)
+    for w in (np.full(SHAPE, 0.7), rng.uniform(0.5, 0.9, SHAPE)):
+        modes = fit_modes(d, fit, weights=w, k=1)
+        L = modes.loading[0][fit]
+        assert (w[fit] * L ** 2).sum() / fit.sum() == pytest.approx(1.0)
+    # at a constant weight the plain RMS is 1 / sqrt(w), not 1
+    modes = fit_modes(d, fit, weights=np.full(SHAPE, 0.7), k=1)
+    plain = np.sqrt((modes.loading[0][fit] ** 2).mean())
+    assert plain == pytest.approx(1.0 / np.sqrt(0.7))
+
+
 def test_fit_modes_leaves_out_bad_pixels_and_zero_weights():
     rng, t, series, fit, held = _grid(2)
     loading = rng.standard_normal(SHAPE)
