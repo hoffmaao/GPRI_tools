@@ -20,7 +20,10 @@ diurnal signal out of the deformation panel with it.
 
 Multilooking is what makes this worth doing: at single look the longer
 baselines close with the chain exactly and carry nothing, and the per-pixel
-field is mostly noise. See `docs/pathdelay.md`.
+field is mostly noise. See `docs/pathdelay.md`. With `--rewrap` each longer
+baseline is first moved by whole cycles onto the chain it spans
+(`gpri_tools.pathdelay.rewrap_to_chain`), as `baker_pathdelay.py --rewrap`
+does.
 
 Display smoothing is for the eye only and is declared on the frame.
 """
@@ -42,13 +45,14 @@ from matplotlib.animation import FFMpegWriter
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from baker_aps import SCENES, integrate, load                        # noqa: E402
+from baker_brightness import shade_local_nights                      # noqa: E402
 from baker_movie import Resampler, decimated_geom                    # noqa: E402
 
 from gpri_tools.aps import epoch_screen_correction, turbulence_screen    # noqa: E402
 from gpri_tools.geocode import BAKERBEND1_HEADING                        # noqa: E402
 from gpri_tools.glaciers import glacier_mask, load_outlines, stable_ground_mask  # noqa: E402
 from gpri_tools.heading import scene_heading                              # noqa: E402
-from gpri_tools.pathdelay import pair_delay_field                         # noqa: E402
+from gpri_tools.pathdelay import pair_delay_field, rewrap_to_chain        # noqa: E402
 from gpri_tools.timeseries import los_displacement                        # noqa: E402
 
 
@@ -60,6 +64,10 @@ def main():
     ap.add_argument("--decimate", type=int, default=1)
     ap.add_argument("--looks", type=int, nargs=2, default=(3, 15))
     ap.add_argument("--lags", type=int, nargs="+", default=[1, 2, 3])
+    ap.add_argument("--rewrap", action="store_true",
+                    help="move each longer baseline by whole cycles onto the "
+                         "chain it spans (gpri_tools.pathdelay.rewrap_to_chain) "
+                         "before the delay is fitted")
     ap.add_argument("--sigma", type=float, nargs=2, default=(5.0, 25.0))
     ap.add_argument("--protect-period", type=float, default=1.0)
     ap.add_argument("--max-response", type=float, default=0.01)
@@ -77,6 +85,9 @@ def main():
                          "along the path, N-units, rather than mm of LOS")
     ap.add_argument("--stride", type=int, default=1)
     ap.add_argument("--fps", type=int, default=24)
+    ap.add_argument("--utc-offset", type=float, default=-7.0,
+                    help="local time minus UTC, hours; local nights 00-06 are "
+                         "shaded on the time strip")
     ap.add_argument("--outdir", type=Path, default=Path("docs/figures"))
     args = ap.parse_args()
 
@@ -128,6 +139,15 @@ def main():
     print(f"ladder in {time.time() - t0:.0f} s")
 
     # ---- the delay, from every measured baseline --------------------------
+    if args.rewrap:
+        # A pair unwrapped on its own is known modulo half a wavelength; put
+        # each longer baseline on the cycle nearest the chain it spans.
+        obs, moved = rewrap_to_chain(obs, pairs, stack.wavelength / 2 * 1000.0)
+        lag = pairs[:, 1] - pairs[:, 0]
+        print("rewrapped onto the chain: " + (", ".join(
+            f"lag {L} moved {100 * moved[lag == L].mean():.1f} % of samples"
+            for L in np.unique(lag) if L > 1) or "nothing to move at lag 1"))
+        del moved
     t0 = time.time()
     field, lam = pair_delay_field(obs, pairs, times, trusted, weights=mean_cc,
                                   sigma=tuple(args.sigma), protect_period=args.protect_period,
@@ -202,16 +222,18 @@ def main():
         ice_delay = np.array([np.nanmean(x[ice]) for x in field])
     ax_t.plot(t_utc, ice_delay, color="tab:green", lw=0.9, label="delay")
     ax_t.plot(t_utc, ice_disp, color="k", lw=0.9, label="displacement")
-    ax_t.set_ylabel("Ice mean")
+    ax_t.set_ylabel("Ice mean" if args.refractivity else "Ice mean (mm)")
     ax_t.set_xlabel("Time (UTC)")
     ax_t.legend(loc="upper left", fontsize=8, frameon=False, ncol=2)
     ax_t.grid(alpha=0.3)
+    shade_local_nights(ax_t, t_utc[0], t_utc[-1], args.utc_offset)
+    ax_t.set_xlim(t_utc[0], t_utc[-1])
     cursor = ax_t.axvline(t_utc[0], color="0.4", lw=1.0)
     stamp = ax_a.text(0.02, 0.97, "", transform=ax_a.transAxes, va="top",
                       fontsize=9, color="0.15")
     note = (f"{args.looks[0]}x{args.looks[1]} looks, lags "
-            f"{'+'.join(map(str, args.lags))}; display: {W}-epoch mean, "
-            f"Gaussian {args.s_smooth[0]:g}x{args.s_smooth[1]:g} px")
+            f"{'+'.join(map(str, args.lags))}{' rewrapped' if args.rewrap else ''}; "
+            f"display: {W}-epoch mean, Gaussian {args.s_smooth[0]:g}x{args.s_smooth[1]:g} px")
     ax_i.text(0.02, 0.03, note, transform=ax_i.transAxes, fontsize=7, color="0.35")
     fig.tight_layout()
 

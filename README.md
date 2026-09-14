@@ -243,8 +243,10 @@ for s in 20170803_full 20180808 20190719; do python examples/baker_modes.py --sc
 # the air and the ice in one movie, two panels on one clock: the per-acquisition
 # path delay beside the deformation left after the ladder and that delay. Needs
 # multilooked pairs -- at single look the per-pixel delay field is mostly noise
-python examples/baker_delay_movie.py --scene 20170913 --lags 1 2 3 --looks 3 15 --decimate 1
-python examples/baker_delay_movie.py --scene 20170913 --refractivity   # the same as N-units
+for s in $CAMPAIGNS 20180709; do
+  python examples/baker_delay_movie.py --scene $s --lags 1 2 3 --looks 3 15 --decimate 1 --rewrap
+done
+python examples/baker_delay_movie.py --scene 20170913 --rewrap --refractivity   # the same as N-units
 ```
 
 `bin/run_scene.sh <scene> [upper|lower|both]` runs the deformation chain for
