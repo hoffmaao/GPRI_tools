@@ -311,20 +311,30 @@ on held-out bedrock that never fed the estimate, all three floored to 1 % at
 | estimator | lam | resp 2 h | held-out rock scatter |
 |---|---:|---:|---:|
 | poster | 75.0 | 0.952 | -56.2 % |
-| **WLS** | 75.0 | 0.952 | **-58.8 %** |
+| WLS | 75.0 | 0.952 | -56.0 % |
 | GLS | 1.00 | 0.305 | -45.9 % |
 
-So the useful change is the cheap one: keep the poster's double-difference
-form and weight the rows by coherence. The pair variance is the Cramer-Rao
-form `(1 - g^2) / (2 g^2)`, which `pair_variance_from_coherence` builds from
-each pair's mean coherence over the pixels the fit reads; over the fit half
-of `20170913` the pair coherences run 0.70 to 0.82, a two-fold spread in
-variance, and weighting by it is worth two and a half points of scatter at no
-cost in selectivity. Each row differences two pairs and so is weighted by the
-worse of them (`double_difference_row_weights`). The Baker examples pass it:
-`baker_pathdelay.py`, `baker_delay_movie.py`, `baker_catchments.py` and
-`baker_population.py` all weight their fits this way, so the figures and
-movies in this repository are the WLS row of the table, not the poster row.
+The pair variance is the Cramer-Rao form `(1 - g^2) / (2 g^2)`, which
+`pair_variance_from_coherence` builds from each pair's mean coherence over
+the pixels the fit reads. Each row differences two pairs and so is weighted
+by the worse of them, normalised to mean one (`double_difference_row_weights`).
+Over the fit half of `20170913` the pair coherences run 0.70 to 0.82, a
+two-fold spread in variance, and with both operators solved at the weight
+their response is measured on, coherence weighting moves the held-out score
+by 0.2 point, from -56.2 % to -56.0 %. The weighted operator's own 24 h floor
+is 63.09, where it returns 0.956 at 2 h against the poster's 0.952 at 75.0.
+
+This table reported -58.8 % for WLS before. Those rows carried the raw
+`1 / variance` weights, whose mean is 2.785, so they solved at an effective
+`lam` of about 75.0 / 2.785 = 26.9 — a lighter weight than the one their
+response was measured on — and the 2.6 points came from that lighter weight,
+not from the weighting (held-out -58.8 %, delay rms 0.851 mm, against
+0.638 mm for the poster and 0.624 mm for the normalised weights).
+
+The Baker examples pass the pair variance: `baker_pathdelay.py`,
+`baker_delay_movie.py`, `baker_catchments.py` and `baker_population.py` all
+weight their fits this way, so the figures and movies in this repository are
+the WLS row of the table, not the poster row.
 
 `gls_path_delay` stays because it is the right tool when the constraint is
 absent — estimating the delay itself as well as possible, or wanting the
@@ -358,7 +368,8 @@ Protecting a slow period is cheap at fast ones, because the operator's gain
 falls as `1 / T^2`. Holding 24 h to 1 % on `20170713_full` raises `lam` from
 0.023 to 6.412 and still returns 100 % at 10 minutes, 99.6 % at 1 h and 97.5 %
 at 2 h. The period to watch is the semidiurnal one, which keeps 6.7 %. With
-the floor in place the campaign that lost 27 % of its diurnal loses 0.3 %.
+the floor in place the response at 24 h on that campaign goes from 0.44 under
+GCV to 0.010.
 
 ## What it is worth on top of the ladder
 

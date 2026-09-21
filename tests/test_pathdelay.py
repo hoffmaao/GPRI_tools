@@ -409,6 +409,36 @@ def test_wrong_sized_weights_are_refused():
                           weights=np.ones(3))
 
 
+def test_pair_variance_keeps_lam_on_the_scale_it_was_chosen_on():
+    rng = np.random.default_rng(53)
+    net = _chain(n_epochs=30, lags=(1, 2, 3))
+    obs = _observe(net, rng.normal(0, 1, net.n_epochs), rate=3.0)
+    v = rng.uniform(0.05, 0.5, net.n_pairs)
+    rows = double_difference(net.pairs, net.times).rows
+    raw = 1.0 / np.maximum(v[rows[:, 0]], v[rows[:, 1]])
+
+    told = invert_path_delay(obs, net.pairs, net.times, lam=2.0, pair_variance=v)
+    scaled = invert_path_delay(obs, net.pairs, net.times, lam=2.0,
+                               pair_variance=10.0 * v)
+    heavier = invert_path_delay(obs, net.pairs, net.times,
+                                lam=2.0 * raw.mean(), weights=1.0 / v)
+    lighter = invert_path_delay(obs, net.pairs, net.times, lam=2.0,
+                                weights=1.0 / v)
+    assert told.lam == 2.0
+    assert np.allclose(told.delay, scaled.delay)
+    assert np.allclose(told.delay, heavier.delay)
+    assert not np.allclose(told.delay, lighter.delay)
+
+
+def test_weights_and_pair_variance_together_are_refused():
+    net = _chain(n_epochs=15)
+    obs = _observe(net, np.zeros(net.n_epochs), rate=1.0)
+    with pytest.raises(ValueError, match="not both"):
+        invert_path_delay(obs, net.pairs, net.times, lam=1.0,
+                          weights=np.ones(net.n_pairs),
+                          pair_variance=np.ones(net.n_pairs))
+
+
 def test_nan_policy_controls_what_happens_to_gaps():
     rng = np.random.default_rng(41)
     net = _chain(n_epochs=30, lags=(1, 2))

@@ -153,7 +153,7 @@ def compute(scene, args):
     if args.path_delay:
         t0 = time.time()
         field, lam = displacement_delay_field(
-            d, np.asarray(net.pairs[:n], int), np.asarray(net.times, float),
+            d, np.asarray(net.pairs[:n], int), np.asarray(times, float),
             trusted, weights=mean_cc, sigma=tuple(args.sigma),
             protect_period=args.protect_period, max_response=args.max_response,
             pair_variance=pair_var)

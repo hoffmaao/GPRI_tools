@@ -88,9 +88,14 @@ from gpri_tools.timeseries import los_displacement                         # noq
 # before answers a different question
 PATHDELAY_CACHE_VERSION = 6
 
-#: flags that change what the cached numbers answer
-CACHE_ARGS = ("ice_coherence", "stable_coherence", "sigma", "lags", "looks",
-              "protect_period", "max_response", "debias", "rewrap")
+#: flags that change what the cached numbers answer, by the key each is
+#: stored under -- ``lam`` is the weight the run chose, so ``--lam`` sits apart
+CACHE_ARGS = {"ice_coherence": "ice_coherence",
+              "stable_coherence": "stable_coherence", "sigma": "sigma",
+              "lags": "lags", "looks": "looks",
+              "protect_period": "protect_period", "max_response": "max_response",
+              "debias": "debias", "rewrap": "rewrap", "lam_arg": "lam",
+              "n_maps": "n_maps"}
 
 ESTIMATORS = ("scene", "pixel", "smooth")
 MASKS = ("fit rock", "held rock", "ice")
@@ -116,11 +121,16 @@ def load_pathdelay(scene: Path, args):
     c = dict(np.load(cache, allow_pickle=False))
     if int(c.get("cache_version", 0)) < PATHDELAY_CACHE_VERSION:
         return None, f"older than cache version {PATHDELAY_CACHE_VERSION}"
-    for k in CACHE_ARGS:
-        want = np.atleast_1d(np.asarray(getattr(args, k), float))
-        have = np.atleast_1d(np.asarray(c.get(k, np.nan), float))
-        if have.shape != want.shape or not np.array_equal(have, want):
-            return None, f"built with a different --{k.replace('_', '-')}"
+    for k, flag in CACHE_ARGS.items():
+        # an unset --lam is NaN on both sides, and a cache that never
+        # recorded the flag cannot say it agrees
+        if k not in c:
+            return None, f"built without recording --{flag.replace('_', '-')}"
+        want = np.atleast_1d(np.asarray(getattr(args, flag), float))
+        have = np.atleast_1d(np.asarray(c[k], float))
+        if have.shape != want.shape or not np.array_equal(have, want,
+                                                          equal_nan=True):
+            return None, f"built with a different --{flag.replace('_', '-')}"
     return c, ""
 
 
@@ -269,16 +279,13 @@ def compute(scene, name, args):
     resp_periods = np.logspace(np.log10(2 * cadence), np.log10(2.0), 200)
     response = np.asarray(system_response(A_w, times, resp_periods, lam), float)
 
-    # invert_path_delay makes its own rows (the smaller of the two pairs'
-    # weights) and does not normalise them, so scale here: every number this
-    # run prints has to come from the same operator lam was chosen on
-    w_pair = 1.0 / pair_var
-    w_pair = w_pair / np.minimum(w_pair[system.rows[:, 0]],
-                                 w_pair[system.rows[:, 1]]).mean()
-    loose = invert_path_delay(scene_series, pairs, times, lam=lam, weights=w_pair)
+    # the same pair variance, so every number this run prints comes from the
+    # operator lam was chosen on
+    loose = invert_path_delay(scene_series, pairs, times, lam=lam,
+                              pair_variance=pair_var)
     trend = float(discarded_rate(loose.delay, times, pairs))
     delays = {"scene": invert_path_delay(scene_series, pairs, times, lam=lam,
-                                         weights=w_pair, pin="rate").delay}
+                                         pair_variance=pair_var, pin="rate").delay}
     print(f"trend the pinning discards: {m_per_yr(trend, 'mm'):+.2f} m/yr "
           "(unobservable: the affine part this system cannot see)")
     t0 = time.time()
@@ -334,7 +341,8 @@ def compute(scene, name, args):
             "n_pixels": np.array([masks[k].sum() for k in MASKS]),
             "cache_version": PATHDELAY_CACHE_VERSION, "antenna": args.antenna,
             "decimate": args.decimate, "utc_offset": args.utc_offset,
-            **{k: np.asarray(getattr(args, k), float) for k in CACHE_ARGS}}
+            **{k: np.asarray(getattr(args, flag), float)
+               for k, flag in CACHE_ARGS.items()}}
 
 
 def report(c, name):

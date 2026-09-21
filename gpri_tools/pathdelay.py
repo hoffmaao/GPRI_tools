@@ -688,8 +688,11 @@ def pair_variance_from_coherence(coherence, mask=None, clip=(0.05, 0.999)):
     ``(1 - g^2) / (2 g^2)`` is the Cramer-Rao variance of an interferometric
     phase at coherence ``g``, and ``g`` here is the pair's mean coherence over
     ``mask`` -- the pixels the fit reads -- so the answer is one number per
-    pair: the ``pair_variance`` of :func:`pair_delay_field`, or ``1 /`` it as
-    the ``weights`` of :func:`invert_path_delay`.  ``clip`` keeps a pair at
+    pair: the ``pair_variance`` of :func:`pair_delay_field` and of
+    :func:`invert_path_delay`, which both turn it into row weights with
+    :func:`double_difference_row_weights` so ``lam`` keeps its scale.  Passing
+    ``1 /`` it as ``weights`` instead solves at ``lam`` over the mean row
+    weight, a lighter weight than the one chosen.  ``clip`` keeps a pair at
     coherence 0 or 1 from carrying infinite or zero variance.
 
     Parameters
@@ -789,9 +792,9 @@ def pair_delay_field(observations, pairs, times, mask, weights=None,
     pair_variance : (n_pairs,) array, optional
         Per-pair error variance, shared across pixels — the Cramer-Rao form
         ``(1 - g^2) / (2 g^2)`` from each pair's coherence, which
-        :func:`pair_variance_from_coherence` builds.  Measured on `20170913`,
-        weighting by it takes the held-out bedrock scatter from -56.2 % to
-        -58.8 % at no cost in selectivity; the Baker examples pass it.
+        :func:`pair_variance_from_coherence` builds.  Measured on `20170913`
+        at the same ``lam``, weighting by it moves the held-out bedrock
+        scatter reduction from -56.2 % to -56.0 %; the Baker examples pass it.
     protect_period : float, optional
         Passed to :func:`lambda_for_system_response`; ``1.0`` keeps the
         correction off a diurnal signal.
@@ -1182,7 +1185,8 @@ def invert_path_delay(observations, pairs, times, lam=None, max_span=None,
                       max_triplets=None, normalise=True, weights=None,
                       pin="affine", nan_policy="drop", chunk=200_000,
                       lambda_method="gcv", protect_period=None,
-                      max_response=0.01, robust=0, huber=3.0):
+                      max_response=0.01, robust=0, huber=3.0,
+                      pair_variance=None):
     """Per-epoch path delay from a stack of pair observations.
 
     Parameters
@@ -1207,7 +1211,13 @@ def invert_path_delay(observations, pairs, times, lam=None, max_span=None,
         returns essentially everything at an hour or less.
     weights : (n_rows,) or (n_pairs,) array, optional
         Row confidence.  A per-pair vector is turned into a per-row one by
-        taking the smaller of the two pairs' weights.
+        taking the smaller of the two pairs' weights.  Used as given, so
+        their scale moves the effective ``lam``.
+    pair_variance : (n_pairs,) array, optional
+        Per-pair error variance, as :func:`pair_delay_field` takes it: turned
+        into row weights normalised to mean one by
+        :func:`double_difference_row_weights`, so ``lam`` means what it means
+        there.  Not together with ``weights``.
     pin : {'affine', 'rate', False}
         Which representative of the two-dimensional null space to return.
         ``'affine'`` (``True``) removes the least-squares trend in time;
@@ -1260,7 +1270,13 @@ def invert_path_delay(observations, pairs, times, lam=None, max_span=None,
         raise ValueError(
             f"only {A.shape[0]} usable double differences; nothing to invert")
 
-    if weights is not None:
+    if weights is not None and pair_variance is not None:
+        raise ValueError("pass weights or pair_variance, not both")
+    w = None
+    if pair_variance is not None:
+        w = double_difference_row_weights(sys.rows, pair_variance,
+                                          pr.shape[0])[keep]
+    elif weights is not None:
         w = np.asarray(weights, float)
         if w.size == pr.shape[0]:
             w = np.minimum(w[rows[:, 0]], w[rows[:, 1]])
@@ -1268,6 +1284,7 @@ def invert_path_delay(observations, pairs, times, lam=None, max_span=None,
             raise ValueError(
                 f"weights has {w.size} entries, need {A.shape[0]} rows or "
                 f"{pr.shape[0]} pairs")
+    if w is not None:
         s = np.sqrt(np.maximum(w, 0.0))
         A = A * s[:, None]
         B = B * s.reshape((-1,) + (1,) * (B.ndim - 1))
