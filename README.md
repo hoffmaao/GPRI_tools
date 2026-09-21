@@ -19,12 +19,14 @@ name: `gpri focus` starts from the BakerBend recipe (`focus.baker_options`),
 and `geocode.BAKERBEND1_HEADING` is the scan heading the examples fall back
 to when a scene has none measured.
 
-![LOS displacement, north side of Mount Baker](docs/figures/04_displacement.png)
+![Path delay and LOS displacement, 2017-09-15](docs/figures/29_delay_movie_20170913_lk3x15.gif)
 
-*LOS displacement over 6.7 hours on the north side of Mount Baker, from 200
-consecutive BakerBend1 interferograms, projected to a local stereographic
-frame. Backdrop is mean backscatter; areas below coherence 0.5 are masked —
-beyond about 8 km the beam is in shadow behind the mountain.*
+*The 2017-09-15 record at 3 × 15 looks: the atmospheric path delay of each
+acquisition (left) and the line-of-sight displacement left once the
+correction ladder and that delay have been taken off (right), with both as
+ice-mean curves below; local night is shaded. Rendered by
+`examples/baker_delay_movie.py`; the full-rate movie is
+`docs/figures/29_delay_movie_20170913_lk3x15.mp4`.*
 
 ## What it does
 
@@ -39,6 +41,10 @@ covariance/    sample coherence matrices
 phaselink/     EVD, eigenSAR, EMI and exact ML phase linking
 atmosphere/    range-dependent refractivity screens, estimated on wrapped phase
 aps/           network-consistent epoch screens, drift and turbulence
+pathdelay/     one path delay per acquisition from double-differenced pairs,
+               with the rows re-wrapped onto the chain and robustly weighted
+modes/         temporal modes of the corrected bedrock, and whether their
+               loadings transfer to pixels that were not fitted
 glaciers/      RGI outlines: where the ice actually is, independent of coherence
 refractivity/  the same screens from meteorology, and per-epoch N
 closure/       closure-phase bias estimation and correction
@@ -107,12 +113,15 @@ above was built for, and it is the only example in this repository.
 - [`docs/campaigns.md`](docs/campaigns.md) — the campaign inventory, the
   measured scan headings and the per-campaign processing notes.
 - [`docs/atmosphere.md`](docs/atmosphere.md) — the correction ladder in full.
+- [`docs/pathdelay.md`](docs/pathdelay.md) — the path delay estimated from
+  double-differenced pairs instead of from bedrock: what it removes, what it
+  provably cannot, and the numbers on six campaigns.
 
 ## Install
 
 ```bash
 pip install -e '.[all]'      # numpy, scipy + pyproj, rasterio, matplotlib
-pytest                       # 375 tests
+pytest                       # 474 tests
 ```
 
 Only `numpy` and `scipy` are required. `pyproj` and `rasterio` are needed for
@@ -176,8 +185,6 @@ Reproduce the figures in `docs/figures/` (the scripts cache the decimated
 day under `GPRI_WORK_ROOT`, so only the first one pays for the read):
 
 ```bash
-python examples/baker_north_side.py --pairs 200 --decimate 8 --spacing 25
-python examples/baker_diurnal.py --decimate 16        # full day + the three tests
 python examples/baker_aps.py --scene 20170803 --decimate 16 --sigma 5 25 --rgi --screens-on-bedrock
 python examples/baker_rgi.py --scene 20170803 --decimate 16
 python examples/baker_pairlsq.py --scene 20170803 --decimate 16 --rgi
@@ -221,6 +228,27 @@ python examples/baker_melt.py --campaigns $CAMPAIGNS
 # per named catchment over that same glacier-mean dB
 for s in $CAMPAIGNS; do python examples/baker_brightness.py --scene $s; done
 for s in $CAMPAIGNS; do python examples/baker_catchments.py --scene $s; done
+# the atmosphere separated in time instead of space: one path delay per
+# acquisition from double-differenced pairs, scored on held-out bedrock.
+# --lags 1 2 3 forms the triplets at three temporal baselines. At single look
+# that adds rows but no information -- the long-baseline phases close exactly
+# with the chain -- so the default stays at the chain alone; see docs/pathdelay.md
+for s in $CAMPAIGNS; do python examples/baker_pathdelay.py --scene $s; done
+# --rewrap puts each longer baseline on the cycle nearest the chain it spans;
+# at single look that is the only thing separating the two
+python examples/baker_pathdelay.py --scene 20170803_full --lags 1 2 3 --rewrap
+# what the corrected bedrock still does together: temporal modes of the
+# post-ladder residual over the fit half, scored on the half that was held out
+for s in 20170803_full 20180808 20190719; do python examples/baker_modes.py --scene $s; done
+# the air and the ice in one movie, two panels on one clock: the per-acquisition
+# path delay beside the deformation left after the ladder and that delay. Needs
+# multilooked pairs -- at single look the per-pixel delay field is mostly noise
+for s in $CAMPAIGNS 20180709; do
+  python examples/baker_delay_movie.py --scene $s --lags 1 2 3 --looks 3 15 --decimate 1 --rewrap
+done
+python examples/baker_delay_movie.py --scene 20170913 --rewrap --refractivity   # the same as N-units
+# the animation at the top of this page: that movie as a GIF, 10 fps at 800 px
+ffmpeg -i docs/figures/29_delay_movie_20170913_lk3x15.mp4 -vf "fps=10,scale=800:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" -loop 0 docs/figures/29_delay_movie_20170913_lk3x15.gif
 ```
 
 `bin/run_scene.sh <scene> [upper|lower|both]` runs the deformation chain for

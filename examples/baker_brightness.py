@@ -61,8 +61,9 @@ def shade_local_nights(ax, t_lo, t_hi, utc_offset, until=6):
     shift = dt.timedelta(hours=float(utc_offset))
     day = (t_lo + shift).replace(hour=0, minute=0, second=0, microsecond=0) - shift
     while day < t_hi:
-        ax.axvspan(max(day, t_lo), min(day + dt.timedelta(hours=until), t_hi),
-                   color="0.85", lw=0, zorder=0)
+        lo, hi = max(day, t_lo), min(day + dt.timedelta(hours=until), t_hi)
+        if lo < hi:                      # skip a night the record does not reach
+            ax.axvspan(lo, hi, color="0.85", lw=0, zorder=0)
         day += dt.timedelta(days=1)
 
 

@@ -188,7 +188,7 @@ correct next lever (and what `gpri_tools.phaselink` is for). Treat ~20 mm per pi
 at 22 h as the single-look noise floor of these stacks, not as an atmospheric
 residual.
 
-**4. Closure phase is now measured on real data** (`13_closure_20160826.png`).
+**4. Closure phase is now measured on real data.**
 The merged single-reference + chain networks of 20160826 give 25 triangles.
 On 1-look pixels closure is identically zero — an algebraic fact worth knowing
 before anyone runs a closure analysis on unlooked data (it also end-to-end
@@ -218,6 +218,107 @@ Baker data, and what it did not, is in [`baker.md`](baker.md) ("The weather,
 and what the ice does with it"). Where the fit has nothing to constrain it
 the old caveat stands unaltered: rock sitting at the rock's heights and
 ranges cannot see a term that shows only on the higher, farther ice.
+
+## What the corrected bedrock still does together
+
+Stages C and D, fitted on one half of the bedrock, leave the other half with
+a mean series that is not flat: a 24 h harmonic of 0.68 mm peak to peak on
+`20170803_full` (r² 0.81 with an offset and a trend fitted beside it),
+0.36 mm on `20180808` (r² 0.41) and 0.69 mm on `20190719` (r² 0.92), on
+held-out means whose sd is 0.38, 0.23 and 0.51 mm. `gpri_tools.modes` asks
+how that residual is organised, and `examples/baker_modes.py` runs it:
+the post-ladder residual over the fitted half, each pixel centred and
+scaled by the square root of its mean coherence, is decomposed by SVD into
+**temporal modes** (epoch series in mm at unit loading) and **loadings**
+(how much of each series a pixel carries, scaled so the coherence-weighted
+mean square over the fitted pixels is 1, whatever the weights — the plain RMS
+equals it only at weights of 1, and here it is 1.17–1.19),
+against a null made by shuffling each pixel's epochs, which keeps every
+pixel's variance and destroys the temporal structure. The held-out half,
+which never enters the decomposition, is then scored two ways:
+
+- **interpolated** — each mode's loading is smoothed from the fitted pixels
+  onto the held-out ones with `turbulence_screen`, the ladder's own
+  normalised convolution at the ladder's σ = (5, 25), and the correction
+  that predicts is subtracted;
+- **self-fit** — each held-out pixel is regressed on the mode series
+  itself, which is the most the modes could remove if every pixel's loading
+  were measured rather than interpolated.
+
+Reproduce with `python examples/baker_modes.py --scene <campaign>`; the
+figures are `figures/30_modes_<campaign>.png`.
+
+**The modes.** Singular values over the shuffled null, the fraction of the
+weighted variance each mode carries, and the 24 h swing of the mode series
+(peak to peak, r² of an offset + trend + 24 h fit):
+
+| campaign | fitted px | mode | s / null | explained | 24 h swing of series |
+|---|---:|---:|---:|---:|---:|
+| `20170803_full` | 17,364 | 1 | 14.3 | 56.6 % | 4.4 mm (r² 1.00) |
+| | | 2 | 8.6 | 18.7 % | 18.1 mm (0.97) |
+| | | 3 | 5.2 | 6.6 % | 16.8 mm (0.98) |
+| | | 4–10 | 4.1 → 1.6 | 4.2 → 0.6 % | ≤ 1.0 mm (≤ 0.02) |
+| `20180808` | 23,034 | 1 | 19.6 | 62.8 % | 7.8 mm (0.99) |
+| | | 2 | 9.5 | 14.1 % | 12.1 mm (0.26) |
+| | | 3 | 6.7 | 7.0 % | 14.9 mm (0.90) |
+| | | 4 | 4.7 | 3.5 % | 9.7 mm (0.67) |
+| | | 5–10 | 3.8 → 1.9 | 2.2 → 0.6 % | ≤ 2.4 mm (≤ 0.08) |
+| `20190719` | 17,265 | 1 | 18.0 | 64.9 % | 5.2 mm (0.97) |
+| | | 2 | 8.0 | 12.3 % | 7.6 mm (0.14) |
+| | | 3 | 6.4 | 7.7 % | 15.0 mm (0.85) |
+| | | 4 | 4.2 | 3.3 % | 9.5 mm (0.76) |
+| | | 5–10 | 3.5 → 1.7 | 2.3 → 0.5 % | ≤ 2.3 mm (≤ 0.08) |
+
+The tenth mode still sits 1.6–1.9 times above its null. The loadings of the
+first three modes have sd 1.17–1.19, a mean within ±0.04 and a correlation
+with slant range of |r| ≤ 0.03 on every campaign.
+
+**Whether the loading transfers.** For the mode whose series carries the
+largest 24 h swing, the loading each held-out pixel gets by regression
+against the loading interpolated to it from its fitted neighbours
+correlates at r = 0.09 (`20170803_full`, mode 2), 0.12 (`20180808`, mode 3)
+and 0.10 (`20190719`, mode 3); panel (c) of the figures is that scatter.
+The scores, as changes from the ladder alone (held sd and held px sd in mm;
+24 h swings peak to peak; px 2 h is the median over pixels of the sd of a
+pixel's 2 h velocity, mm/hr; the ice columns are the coherent ice's mean
+series):
+
+| campaign | variant | held sd | held 24 h | held px sd | held px 2 h | ice 24 h | ice rate |
+|---|---|---:|---:|---:|---:|---:|---:|
+| `20170803_full` | ladder | 0.384 | 0.675 | 17.96 | 6.05 | 21.99 | 23.20 m/yr |
+| | + modes k=3 | −16.9 % | −15.0 % | −0.3 % | −0.0 % | −0.1 % | +0.02 |
+| | + modes k=10 | −18.2 % | −13.9 % | −0.3 % | −0.0 % | −0.1 % | +0.02 |
+| | self-fit k=3 | −63.9 % | −94.1 % | −57.4 % | −9.4 % | — | — |
+| | self-fit k=10 | −82.6 % | −98.9 % | −75.8 % | −41.8 % | — | — |
+| `20180808` | ladder | 0.227 | 0.359 | 24.96 | 6.36 | 21.01 | 25.92 m/yr |
+| | + modes k=3 | +1.7 % | −4.3 % | −0.3 % | −0.0 % | +0.3 % | +0.04 |
+| | + modes k=10 | +0.6 % | +1.3 % | −0.3 % | −0.2 % | +0.3 % | +0.04 |
+| | self-fit k=3 | −44.2 % | −75.3 % | −60.1 % | −6.2 % | — | — |
+| | self-fit k=10 | −71.8 % | −98.5 % | −76.5 % | −25.0 % | — | — |
+| `20190719` | ladder | 0.513 | 0.688 | 24.12 | 6.40 | 6.31 | 19.62 m/yr |
+| | + modes k=3 | −11.6 % | −15.8 % | −0.3 % | −0.0 % | −0.4 % | +0.03 |
+| | + modes k=10 | −12.1 % | −17.7 % | −0.3 % | −0.2 % | −0.4 % | +0.03 |
+| | self-fit k=3 | −75.3 % | −82.7 % | −60.9 % | −6.7 % | — | — |
+| | self-fit k=10 | −86.1 % | −97.8 % | −77.5 % | −25.4 % | — | — |
+
+The self-fit rows leave the ice alone by construction. Mode 1 on its own
+(k = 1, not tabulated) changes the held-out 24 h swing by +0.2 to +1.6 %
+interpolated and +0.2 to +18.2 % self-fitted, while taking 34–40 % off the
+per-pixel sd self-fitted; its series is the one with r² ≥ 0.97 against the
+trend-and-harmonic model on every campaign.
+
+Narrower loading screens (`--loading-sigma 1 5`, the ladder kept at
+σ = (5, 25)) raise the transfer correlation to r = 0.24, 0.19 and 0.22 and
+at k = 3 take −11.1 %, −20.6 % and −11.7 % off the held-out 24 h swing,
+−22.6 %, −7.4 % and −16.2 % off the held-out sd and −0.9 %, −0.9 % and
+−1.3 % off the per-pixel sd; a kernel that narrow has no support on the
+ice, and the ice columns do not move.
+
+In one line: two or three modes carry the held-out mean's 24 h harmonic —
+each held-out pixel regressed on them loses 75–94 % of it at k = 3 — and
+the interpolated loadings change it by +1.3 % to −20.6 % and the
+per-pixel sd by −0.3 % to −1.3 %, with r = 0.09–0.24 between a held-out
+pixel's own loading and the one its fitted neighbours give it.
 
 ## Recommended pipeline
 

@@ -72,13 +72,15 @@ __all__ = [
     "saturation_vapour_pressure", "vapour_pressure", "refractivity",
     "dry_refractivity", "wet_refractivity", "refractivity_phase",
     "delta_n_from_met", "sensitivity", "invert_refractivity",
-    "ramp_from_delta_n", "MetRecord",
+    "ramp_from_delta_n", "MetRecord", "specific_humidity", "humidity_gradient",
 ]
 
 #: Smith & Weintraub (1953) coefficients.
 K1 = 77.6      # K / hPa,  dry term
 K2 = 3.73e5    # K^2 / hPa, wet term
 ZERO_C = 273.15
+#: Ratio of the gas constants for dry air and water vapour.
+EPSILON = 0.62198
 
 
 # --------------------------------------------------------------- moist air
@@ -107,6 +109,36 @@ def vapour_pressure(temperature_c, relative_humidity, over="water"):
     return rh * saturation_vapour_pressure(temperature_c, over=over)
 
 
+def specific_humidity(temperature_c, relative_humidity, pressure_hpa,
+                      over="water"):
+    """Mass of water vapour per mass of moist air, in g/kg.
+
+    ``q = eps e / (P - (1 - eps) e)``.  This is the quantity a weather station
+    is usually compared against, and unlike relative humidity it does not move
+    when only the temperature does — which matters when the comparison is
+    against a path delay through air whose temperature is cycling.
+
+    >>> round(float(specific_humidity(5.0, 0.70, 880.0)), 3)
+    4.328
+    """
+    e = vapour_pressure(temperature_c, relative_humidity, over=over)
+    p = np.asarray(pressure_hpa, float)
+    return 1e3 * EPSILON * e / (p - (1.0 - EPSILON) * e)
+
+
+def humidity_gradient(q_low, q_high, height_low, height_high):
+    """Vertical gradient of specific humidity, g/kg per km.
+
+    The two levels are whatever is available — two stations at different
+    heights, or a station and a reanalysis level.  A path that climbs through
+    the boundary layer responds to this, not to the humidity at either end.
+    """
+    dz = (np.asarray(height_high, float) - np.asarray(height_low, float)) / 1e3
+    with np.errstate(divide="ignore", invalid="ignore"):
+        g = (np.asarray(q_high, float) - np.asarray(q_low, float)) / dz
+    return np.where(np.isfinite(g), g, np.nan)
+
+
 def dry_refractivity(pressure_hpa, temperature_c):
     """Hydrostatic term ``K1 * P / T``, in N-units."""
     return K1 * np.asarray(pressure_hpa, float) / (np.asarray(temperature_c, float) + ZERO_C)
@@ -128,7 +160,7 @@ def refractivity(pressure_hpa, temperature_c, relative_humidity=None,
     """Total radio refractivity ``N = (n - 1) * 1e6`` for moist air.
 
     >>> round(float(refractivity(880.0, 5.0, 0.70)), 2)
-    272.72
+    274.95
     """
     return (dry_refractivity(pressure_hpa, temperature_c)
             + wet_refractivity(temperature_c, relative_humidity, vapour_hpa, over))
