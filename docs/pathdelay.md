@@ -265,8 +265,8 @@ when the pair errors are independent (`Sigma_b = T Sigma_pair T^T` is
 tridiagonal); and coherence makes the pair variances unequal besides.
 
 Three estimators, then. **WLS** keeps the double-difference form and weights
-each row by the worse of the two pairs it is built from
-(`pair_delay_field(..., pair_variance=...)`). **GLS** (`gls_path_delay`)
+each row by the worse of the two pairs it is built from (`pair_variance=`
+on `invert_path_delay` and `pair_delay_field`). **GLS** (`gls_path_delay`)
 drops the double difference and solves the pair model directly —
 `b_p = (a_j - a_i) + v dt_p` for the delays and the steady rate together
 (`joint_design`), weighted by the pair variances — which eliminates the
