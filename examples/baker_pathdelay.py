@@ -39,7 +39,7 @@ method cannot observe, in the units it would be mistaken for.
 What the correction can reach is set by the operator, not by the data.  A
 component of period T enters the double differences weighted by
 4 sin^2(pi dt / T) / dt, which vanishes as T grows; with the regularisation
-chosen here the gain is ~1 at an hour and 0.002 to 0.010 at a day, measured
+chosen here the gain is ~1 at an hour and 0.001 to 0.010 at a day, measured
 on the operator actually inverted, and the figure's response panel says so
 per campaign.  A diurnal signal, of either origin, passes through this
 correction untouched.
@@ -83,9 +83,10 @@ from gpri_tools.pathdelay import (discarded_rate, double_difference,       # noq
 from gpri_tools.refractivity import specific_humidity                      # noqa: E402
 from gpri_tools.timeseries import los_displacement                         # noqa: E402
 
-# version 5: the rows are weighted by the pairs' coherence, so a cached run
-# from before the weighting answers a different question
-PATHDELAY_CACHE_VERSION = 5
+# version 6: the rows are weighted by the pairs' coherence -- and the scene
+# estimator's weights are normalised like the rest -- so a cached run from
+# before answers a different question
+PATHDELAY_CACHE_VERSION = 6
 
 #: flags that change what the cached numbers answer
 CACHE_ARGS = ("ice_coherence", "stable_coherence", "sigma", "lags", "looks",
@@ -268,7 +269,12 @@ def compute(scene, name, args):
     resp_periods = np.logspace(np.log10(2 * cadence), np.log10(2.0), 200)
     response = np.asarray(system_response(A_w, times, resp_periods, lam), float)
 
+    # invert_path_delay makes its own rows (the smaller of the two pairs'
+    # weights) and does not normalise them, so scale here: every number this
+    # run prints has to come from the same operator lam was chosen on
     w_pair = 1.0 / pair_var
+    w_pair = w_pair / np.minimum(w_pair[system.rows[:, 0]],
+                                 w_pair[system.rows[:, 1]]).mean()
     loose = invert_path_delay(scene_series, pairs, times, lam=lam, weights=w_pair)
     trend = float(discarded_rate(loose.delay, times, pairs))
     delays = {"scene": invert_path_delay(scene_series, pairs, times, lam=lam,

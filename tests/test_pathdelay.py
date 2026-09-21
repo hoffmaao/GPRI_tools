@@ -1025,3 +1025,33 @@ def test_displacement_delay_field_passes_the_pair_variance_through():
                             net.pairs, net.times, mask, sigma=(0.5, 0.5),
                             protect_period=None, lam=1e-3, pair_variance=v)
     assert np.allclose(a, b)
+
+
+def test_pair_variance_falls_back_when_a_pair_has_nothing_finite():
+    cc = np.full((3, 4, 4), 0.8)
+    cc[1] = np.nan
+    v = pair_variance_from_coherence(cc, clip=(0.05, 0.999))
+    good = (1 - 0.8 ** 2) / (2 * 0.8 ** 2)
+    assert np.allclose(v[[0, 2]], good)
+    assert np.isclose(v[1], (1 - 0.05 ** 2) / (2 * 0.05 ** 2))   # the clip's floor
+
+
+def test_one_bad_pair_only_zeroes_the_rows_that_read_it():
+    net = _chain(n_epochs=8, lags=(1, 2))
+    pairs = np.asarray(net.pairs, int)
+    sysd = double_difference(pairs, net.times)
+    v = np.full(pairs.shape[0], 0.2)
+    v[3] = np.nan
+    w = double_difference_row_weights(sysd.rows, v, pairs.shape[0])
+    reads_it = (sysd.rows == 3).any(axis=1)
+    assert np.all(w[reads_it] == 0.0)
+    assert np.all(np.isfinite(w)) and np.all(w[~reads_it] > 0)
+    assert np.isclose(w[~reads_it].mean(), 1.0)
+
+
+def test_row_weights_refuse_a_variance_with_nothing_usable():
+    net = _chain(n_epochs=5, lags=(1,))
+    sysd = double_difference(np.asarray(net.pairs, int), net.times)
+    with pytest.raises(ValueError, match="usable variance"):
+        double_difference_row_weights(sysd.rows, np.full(len(net.pairs), np.nan),
+                                      len(net.pairs))

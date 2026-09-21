@@ -161,8 +161,9 @@ def main():
         ice = usable & ~stable
     fit_m, held_m = split_mask(stable)
     # each pair is worth what its coherence over the pixels the fit reads says;
-    # held-out bedrock scores this script, so it is not among them
-    pair_var = pair_variance_from_coherence(cc[:n], ice | fit_m)
+    # held-out bedrock scores this script, so it is not among them.  A pass
+    # over the whole stack, so only when the delay stage will read it
+    pair_var = pair_variance_from_coherence(cc[:n], ice | fit_m) if args.path_delay else None
     del cc
     span = float(net.times[-1] * 24)
     print(f"{day}: {n} pairs over {span:.1f} h; ice {ice.sum():,} px, "

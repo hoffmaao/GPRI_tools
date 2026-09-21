@@ -708,8 +708,13 @@ def pair_variance_from_coherence(coherence, mask=None, clip=(0.05, 0.999)):
     lo, hi = (float(c) for c in clip)
     g = np.empty(len(coherence), float)
     for i, c in enumerate(coherence):
-        g[i] = np.nanmean(np.asarray(c, float)[mask] if mask is not None else c)
-    g = np.clip(g, lo, hi)
+        x = np.asarray(c, float)
+        x = x[mask] if mask is not None else x.reshape(-1)
+        ok = np.isfinite(x)
+        # a pair with nothing finite where the fit reads is as bad as the clip
+        # allows, not a NaN that would spread into every row it enters
+        g[i] = x[ok].mean() if ok.any() else lo
+    g = np.clip(np.where(np.isfinite(g), g, lo), lo, hi)
     return (1.0 - g ** 2) / (2.0 * g ** 2)
 
 
@@ -726,6 +731,8 @@ def double_difference_row_weights(rows, pair_variance, n_pairs=None):
     rows : (n_rows, 2) int array
         :attr:`DoubleDifference.rows` -- the two pairs each row differences.
     pair_variance : (n_pairs,) array
+        A non-finite entry drops the rows that read that pair to zero weight
+        and leaves the others alone.
     n_pairs : int, optional
         Checked against ``pair_variance`` when given.
 
@@ -733,13 +740,20 @@ def double_difference_row_weights(rows, pair_variance, n_pairs=None):
     -------
     row_weights : (n_rows,) array
     """
-    v = np.maximum(np.asarray(pair_variance, float), 1e-30)
+    v = np.asarray(pair_variance, float)
     if n_pairs is not None and v.size != n_pairs:
         raise ValueError(f"pair_variance has {v.size} entries for "
                          f"{n_pairs} pairs")
+    v = np.where(np.isfinite(v), np.maximum(v, 1e-30), np.inf)
     r = np.asarray(rows, int).reshape(-1, 2)
-    w = 1.0 / np.maximum(v[r[:, 0]], v[r[:, 1]])
-    return w / w.mean()
+    with np.errstate(divide="ignore"):
+        w = 1.0 / np.maximum(v[r[:, 0]], v[r[:, 1]])
+    # a row that reads a pair with no variance to speak of carries no weight,
+    # and only that row: the mean is taken over the rows that do
+    good = w > 0
+    if not good.any():
+        raise ValueError("no pair carries a usable variance")
+    return w / w[good].mean()
 
 
 def pair_delay_field(observations, pairs, times, mask, weights=None,

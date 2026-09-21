@@ -119,8 +119,9 @@ def compute(scene, args):
     stable, _ = stable_ground_mask(mean_cc, geom, gdf, threshold=args.stable_coherence)
     coherent = mean_cc >= args.ice_coherence
     trusted = coherent | stable
-    # each pair is worth what its coherence over the trusted pixels says
-    pair_var = pair_variance_from_coherence(cc[:n], trusted)
+    # each pair is worth what its coherence over the trusted pixels says --
+    # a pass over the whole stack, so only when the delay stage will read it
+    pair_var = pair_variance_from_coherence(cc[:n], trusted) if args.path_delay else None
     del cc
 
     # the named glaciers with enough coherent ice to average

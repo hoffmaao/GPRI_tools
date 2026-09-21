@@ -42,7 +42,7 @@ dimensional, so the answer is unique only after a representative is chosen.
 instead the trend that would change the mean apparent velocity, so that the
 correction provably leaves every rate alone. The examples use `pin_rate`,
 and report the trend so discarded — the size of the unobservable part, in
-the units it would otherwise be mistaken for: between **−1.01 and +1.22
+the units it would otherwise be mistaken for: between **−0.96 and +1.21
 m/yr** across the six campaigns.
 
 **Slow atmosphere, or unsteady flow.** Motion and delay enter identically,
@@ -55,8 +55,8 @@ and the regularised solve returns `g^2 / (g^2 + lam)` of it.
 `frequency_response` evaluates that product for one equally spaced triplet
 and `system_response` measures it on the operator actually being inverted.
 **Left to cross-validation it is not small on every campaign:** GCV gives
-`20170713_full` a response of 0.58 at 24 h, so the correction would take more
-than half of any diurnal signal with it. That is what the weight floor below
+`20170713_full` a response of 0.44 at 24 h, so the correction would take
+nearly half of any diurnal signal with it. That is what the weight floor below
 is for, and the examples apply it by default.
 
 ## Three estimators, and the split-half score
@@ -87,19 +87,19 @@ rows weighted by the pairs' coherence as the script does:
 
 | campaign | epochs | baselines (min) | lam | raised by the floor | response 2 h | response 24 h | `scene` rock | `pixel` rock | `smooth` rock | `smooth` ice | trend discarded (m/yr) |
 |---|---:|---|---:|---|---:|---:|---:|---:|---:|---:|---:|
-| `20170713_full` | 271 | 4.1–42.7 | 6.412 | from 0.023 | 0.975 | 0.010 | 69.4 % | 86.1 % | 3.9 % | 5.3 % | +0.08 |
-| `20170803_full` | 723 | 2.0–6.3 | 20.19 | no | 0.734 | 0.001 | 42.3 % | 83.2 % | 4.4 % | 7.7 % | −1.07 |
-| `20170827` | 1,335 | 2.0–19.3 | 0.878 | from 0.224 | 0.977 | 0.010 | 64.9 % | 89.5 % | 5.3 % | 9.7 % | +0.18 |
-| `20170913` | 437 | 2.0 | 7.647 | no | 0.864 | 0.004 | 58.4 % | 89.4 % | 2.9 % | 16.4 % | +0.22 |
-| `20180808` | 1,227 | 2.0–26.9 | 1.048 | from 0.173 | 0.973 | 0.010 | 66.9 % | 89.9 % | 5.0 % | 7.7 % | −1.31 |
-| `20190719` | 1,137 | 1.2–173.6 | 2.044 | from 0.269 | 0.950 | 0.010 | 60.4 % | 88.7 % | 5.6 % | 10.6 % | +1.52 |
+| `20170713_full` | 271 | 4.1–42.7 | 6.412 | from 0.023 | 0.975 | 0.010 | 67.0 % | 86.1 % | 3.9 % | 5.3 % | +0.06 |
+| `20170803_full` | 723 | 2.0–6.3 | 20.19 | no | 0.734 | 0.001 | 40.1 % | 83.2 % | 4.4 % | 7.7 % | −0.96 |
+| `20170827` | 1,335 | 2.0–19.3 | 0.878 | from 0.224 | 0.977 | 0.010 | 63.5 % | 89.5 % | 5.3 % | 9.7 % | +0.37 |
+| `20170913` | 437 | 2.0 | 7.647 | no | 0.864 | 0.004 | 55.7 % | 89.4 % | 2.9 % | 16.4 % | +0.03 |
+| `20180808` | 1,227 | 2.0–26.9 | 1.048 | from 0.173 | 0.973 | 0.010 | 62.0 % | 89.9 % | 5.0 % | 7.7 % | −0.74 |
+| `20190719` | 1,137 | 1.2–173.6 | 2.044 | from 0.269 | 0.950 | 0.010 | 57.9 % | 88.7 % | 5.6 % | 10.6 % | +1.21 |
 
 Held-out bedrock carries 12,369 to 23,034 pixels per campaign and the
 coherent ice 25,418 to 33,652; the fit and held halves are within one pixel
 of each other by construction.
 
 Three things the table says. The `scene` estimator, fitted on bedrock the
-score never uses, takes 42 to 69 % off the bedrock scatter. The `pixel`
+score never uses, takes 40 to 67 % off the bedrock scatter. The `pixel`
 control takes 83 to 90 % off every mask including the held-out one — it is fitting each pixel's own noise, which is what a system
 with one unknown per epoch and one observation per pair does, and it is in
 the table to say that such a number measures nothing. Of that per-pixel
@@ -168,23 +168,23 @@ an rms of 2.88 mm on every mask. `gpri_tools.pathdelay.rewrap_to_chain`
 (`--rewrap` in `baker_pathdelay.py`) moves each longer baseline by whole
 cycles onto the chain sum and leaves anything smaller than a cycle alone.
 That brings the closure to 0.000 mm, takes the scene estimator's held-out
-score from −34.1 % to −49.2 % (the chain alone: −42.3 %), its GCV weight
-from 1,363 down to the 41.5 floor and its delay rms from 0.68 to
-2.36 mm; the smooth estimator (`pair_delay_field`, σ = (5, 25), 24 h held
+score from −32.7 % to −45.2 % (the chain alone: −40.1 %), its GCV weight
+from 1,363 down to the 41.5 floor and its delay rms from 0.61 to
+1.79 mm; the smooth estimator (`pair_delay_field`, σ = (5, 25), 24 h held
 to 1 %, measured before the row weighting went into the scripts) goes from
 −4.1 % to −6.9 % on held-out rock and from −6.4 % to −11.1 % on the ice, on
 an apparent-velocity scatter that the rewrap itself raises from 337.8 to
 375.2 m/yr on held-out rock before any correction.
 (`baker_pathdelay.py --scene 20170803_full --lags 1 2 3 --rewrap`, whose
 `smooth` row is the per-pixel cube Gaussian-filtered rather than
-`pair_delay_field`, prints for held-out rock 69.8 → 35.5 m/yr, 49.2 %, on
+`pair_delay_field`, prints for held-out rock 69.8 → 38.2 m/yr, 45.2 %, on
 the scene estimator, 375.2 → 60.0, 84.0 %, per pixel and 375.2 → 353.1,
-5.9 %, smoothed, and 16.8 %, 82.8 % and 9.7 % on the ice.) On the
+5.9 %, smoothed, and 15.5 %, 82.8 % and 9.7 % on the ice.) On the
 multilooked `20170913` (3 × 15 looks, 1,305 pairs, 437 epochs) the same
 operation moves 3.0 % of the fit-rock samples at lag 2 and 4.0 % at lag 3
 (0.6 % and 1.2 % of the ice; 27 % and 34 % of all finite pixels), takes the
 per-pixel lag-2 closure from 1.41 to 0.64 mm on rock and 0.65 to 0.18 mm on
-ice, and changes the scores by at most 2.4 points: scene −59.3 % → −59.5 %,
+ice, and changes the scores by at most 2.4 points: scene −56.5 % → −56.6 %,
 smooth −12.9 % → −11.7 % on held-out rock and −34.4 % → −36.8 % on the ice
 (those two also from the unweighted `pair_delay_field`), with the held-out
 scatter before correction going 167.8 → 182.2 m/yr.
@@ -243,7 +243,7 @@ this to long baselines, and expect it to do nothing at short ones.
 
 | estimator | single look, dec 16 | 3 x 15 looks, lags 1+2+3 |
 |---|---:|---:|
-| `scene` | 58.4 % | 59.3 % |
+| `scene` | 55.7 % | 56.5 % |
 | `pixel` (the self-fitting control) | 89.4 % | 55.1 % |
 | `smooth` | **2.9 %** | **10.8 %** |
 | `smooth`, on ice | 16.4 % | 31.4 % |
@@ -336,10 +336,10 @@ convention, not a measurement.
 ## Keeping it off the signal you mean to measure
 
 The cross-validated weight is not safe by default. Across the six campaigns
-GCV picks `lam` over three orders of magnitude (0.014 to 15), and with it the
-share of a diurnal the inversion returns runs from 0.0002 to 0.58. On
-`20170713_full`, at the top of that range, applying the correction takes
-**27 %** of the ice's diurnal amplitude with it.
+GCV picks `lam` over three orders of magnitude (0.023 to 20), and with it the
+share of a diurnal the inversion returns runs from 0.0015 to 0.44. On
+`20170713_full`, at the top of that range, the correction would take 44 % of
+a 24 h component with it.
 
 `lambda_for_system_response` fixes that by choosing the weight from the
 response instead of from the data: it bisects until `system_response` — the
