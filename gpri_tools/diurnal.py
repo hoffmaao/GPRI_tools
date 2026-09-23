@@ -276,6 +276,45 @@ class HarmonicFit:
         hours = (ph / (2.0 * np.pi)) * period * 24.0
         return np.mod(origin_hour + hours, period * 24.0)
 
+    def amplitude_sigma(self, period=DIURNAL, residual_rms=None):
+        """One-sigma uncertainty of :meth:`amplitude`, in the input's units.
+
+        Propagates the fit's own residual scatter through the least-squares
+        covariance of the two harmonic coefficients.  With ``C = (G^T G)^-1``
+        for the shared design ``G`` and the harmonic's coefficients ``a, b``,
+
+            var(A) = sigma^2 (a^2 C_aa + 2 a b C_ab + b^2 C_bb) / (a^2 + b^2)
+
+        which is the linearised error on ``A = hypot(a, b)``.  ``sigma`` is
+        :attr:`residual_rms` scaled to an unbiased variance by the degrees of
+        freedom, unless one is passed.  Weights are not carried here, so on a
+        weighted fit this is the unweighted reading of the same scatter.
+
+        An amplitude only means something against this: a pixel whose
+        ``amplitude`` is not a few times its ``amplitude_sigma`` has measured
+        the noise.
+        """
+        i = self._slot(period)
+        a, b = self.coeffs[i], self.coeffs[i + 1]
+        G = harmonic_design(self.times, self.periods, self.degree)
+        n, p = G.shape
+        C = np.linalg.pinv(G.T @ G)
+        rms = self.residual_rms if residual_rms is None else residual_rms
+        if rms is None:
+            raise ValueError("no residual_rms on this fit; pass one")
+        dof = max(n - p, 1)
+        var = np.asarray(rms, float) ** 2 * n / dof
+        denom = a ** 2 + b ** 2
+        with np.errstate(invalid="ignore", divide="ignore"):
+            factor = (a ** 2 * C[i, i] + 2 * a * b * C[i, i + 1]
+                      + b ** 2 * C[i + 1, i + 1]) / denom
+            # where the harmonic is zero the direction is undefined; take the
+            # mean of the two coefficients' variances, which is what a
+            # vanishing amplitude is measured against
+            factor = np.where(denom > 0, factor,
+                              0.5 * (C[i, i] + C[i + 1, i + 1]))
+        return np.sqrt(var * factor)
+
     def explained_variance(self):
         """Fraction of the signal variance the model accounts for, per pixel."""
         if self.residual_rms is None or self.total_rms is None:

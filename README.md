@@ -116,6 +116,10 @@ above was built for, and it is the only example in this repository.
 - [`docs/pathdelay.md`](docs/pathdelay.md) — the path delay estimated from
   double-differenced pairs instead of from bedrock: what it removes, what it
   provably cannot, and the numbers on six campaigns.
+- [`docs/observables.md`](docs/observables.md) — what else these
+  acquisitions measure: the 24 h harmonic per pixel against its own error,
+  coherence against temporal baseline, and the structure function of the
+  atmosphere the screens remove.
 
 ## Install
 
@@ -210,6 +214,12 @@ python examples/baker_composite.py --scenes 20170827 20180808 20190719
 # the same clock in velocity: the hour-of-day composite of the ice's LOS
 # velocity, with held-out bedrock underneath as the noise floor
 python examples/baker_velocity.py
+# what else the same acquisitions measure, one figure each (docs/observables.md)
+for s in 20170713_full 20170803_full 20170827 20180808 20190719; do
+  python examples/baker_harmonics.py --scene $s --decimate 16 --rgi
+done
+python examples/baker_decorrelation.py --scene 20170913 --lags 1 2 3 30 60 90 180 360
+for s in $CAMPAIGNS 20180709; do python examples/baker_turbulence.py --scene $s --rgi; done
 # the weather beside the radar (SNOTEL + ERA5, a week either side, cached), and
 # what the ice does with it: the stratification forward model, the lag, the ice
 # against temperature, and which pixels carry the waveform
