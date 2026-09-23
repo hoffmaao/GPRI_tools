@@ -189,7 +189,7 @@ python examples/baker_aps.py --scene 20170803 --decimate 16 --sigma 5 25 --rgi -
 python examples/baker_rgi.py --scene 20170803 --decimate 16
 python examples/baker_pairlsq.py --scene 20170803 --decimate 16 --rgi
 python examples/baker_movie.py --scene 20170803 --rgi                  # cumulative
-python examples/baker_movie.py --scene 20170803 --rgi --rate-hours 2
+python examples/baker_movie.py --scene 20170803 --rgi --rate-hours 2 --path-delay
 python examples/baker_movie.py --scene 20170803 --rgi --anomaly mean   # + reference rate panel
 python examples/baker_movie.py --scene 20170803 --rgi --anomaly trend
 python examples/baker_movie.py --scene 20170803 --rgi --anomaly periodic  # tilt-free trend
@@ -202,10 +202,14 @@ python examples/baker_closure.py --scene 20170803 --lags 1 2 3 30 60 90 180 360 
 python examples/baker_repeat.py --scene 20170827 --decimate 16 --rgi
 python examples/baker_population.py --scene 20170827 --decimate 16 --rgi
 # every processed day on one UTC clock (needs baker_population.py run per scene)
-python examples/baker_seasons.py --scenes 20170713_full 20170803 20170827
-python examples/baker_seasons.py --detrend linear   # the same on per-pixel linear trends
+DAYS="20160826_full 20170713_full 20170803 20170827 20170913 20180709 20180808 20190719"
+python examples/baker_seasons.py --scenes $DAYS
+python examples/baker_seasons.py --scenes $DAYS --detrend linear  # per-pixel linear trends
 # what repeats hour to hour, for the campaigns that ran more than one day
 python examples/baker_composite.py --scenes 20170827 20180808 20190719
+# the same clock in velocity: the hour-of-day composite of the ice's LOS
+# velocity, with held-out bedrock underneath as the noise floor
+python examples/baker_velocity.py
 # the weather beside the radar (SNOTEL + ERA5, a week either side, cached), and
 # what the ice does with it: the stratification forward model, the lag, the ice
 # against temperature, and which pixels carry the waveform

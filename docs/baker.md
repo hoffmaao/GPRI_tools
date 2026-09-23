@@ -276,15 +276,14 @@ departure from its secular trend — the same-hour rate of the next paragraph,
 or its own linear trend on a record under a day — over the ice and over
 held-out rock, against a UTC clock
 ([`19_population_20170827.png`](figures/19_population_20170827.png)).
-The ice median is a **night-time trough with a sharp morning recovery** on
-both days: behind trend from about 05 UTC (22:00 PDT), lowest at 08–13 UTC,
-back above trend by 15 UTC (08:00 PDT), highest at 02–03 UTC (19:00–20:00
-PDT). The trough is −9 mm on the first night and −21 mm on the second, and
-the second morning's rise is a step of some 25 mm in two hours — which a
-24 h sinusoid renders as a larger amplitude at an earlier phase, as the
-table above reports. Over the same 45 hours the held-out bedrock median
-stays within ±1.2 mm (RMS 0.46 mm against the ice's 7.9 mm, correlation
-−0.48); the ice's secular LOS rate is +14.1 m/yr, the rock's +0.4.
+The ice median is a **trough and recovery** on both days. On the first it is
+lowest at 00 UTC (−5.6 mm) and highest at 18 UTC (+8.5 mm); on the second it
+is lowest at 07–08 UTC (−18.3 mm) and highest at 15 UTC (+10.1 mm), and its
+largest two-hour rise is +11.9 mm, from 11 to 13 UTC — which a 24 h sinusoid
+renders as a larger amplitude at an earlier phase, as the table above
+reports. Over the same 45 hours the held-out bedrock median stays within
+±1.8 mm (RMS 0.52 mm against the ice's 7.2 mm, correlation −0.46); the ice's
+secular LOS rate is +14.1 m/yr, the rock's +0.3.
 
 **Separating the two without assuming a waveform.** A least-squares line
 through one cycle of a waveform that is not symmetric about the middle of
@@ -298,34 +297,35 @@ their difference over their separation is secular motion and noise alone
 once, on the population median — it is common to every pixel that shares
 the waveform — takes it out of every pixel's anomaly and puts it back into
 its rate; `--anomaly periodic` does the same in the movies. On 20170803 the
-line gave the ice **+24.5 m/yr** and the same-hour differences (19 pairs,
-within the 29 min the harmonic fits allow) **+31.2 m/yr**: the trough tilts
-the line by −6.7 m/yr, 9 mm at either end of the day, and with the tilt out
-the ice anomaly closes on itself, +17 mm at 22 UTC on both evenings. On
-20170713_full the same correction takes +2.1 to +4.8 m/yr (five pairs at
-the two ends of a record five minutes short of a day; the lower antenna
-gives +4.7). Held-out rock comes out at −0.7 and +0.6 m/yr by the same
+line gave the ice **+25.0 m/yr** and the same-hour differences (19 pairs,
+within the 29 min the harmonic fits allow) **+30.8 m/yr**: the trough tilts
+the line by −5.8 m/yr, 8 mm at either end of the day, and with the tilt out
+the ice anomaly closes on itself, +14 mm at 22 UTC on both evenings. On
+20170713_full the same correction takes +2.8 to +5.4 m/yr (five pairs at
+the two ends of a record five minutes short of a day). Held-out rock comes
+out at −1.4 and +0.6 m/yr by the same
 estimator — its error on a one-cycle record, where only the ends can be
 paired. On 20170827 there are 632 pairs across 20.9 h and the line and the
-same-hour rate agree, +14.7 against +14.1 m/yr (rock +0.4): over 1.87
+same-hour rate agree, +14.5 against +14.1 m/yr (rock +0.3): over 1.87
 cycles the tilt is already small. That record also gives the error bar a
 one-day record cannot give itself: read the same-hour rate from every
 40 min window of pairs across its two days, as a one-day record has to, and
-the ice's comes out anywhere from +5 to +23 m/yr (p16–p84 +8.4 to +18.9, a
-scatter of ±4.8 m/yr; the rock's ±0.5). A same-hour rate from one day of
-ice therefore carries about ±5 m/yr of that day's non-repeating motion, and
-the 6.7 m/yr tilt on 20170803 is of that size. The trough's shape is
+the ice's comes out anywhere from +6.5 to +20.3 m/yr (p16–p84 +7.7 to
++18.0, a scatter of ±5.1 m/yr; the rock's ±0.5). A same-hour rate from one
+day of ice therefore carries about ±5 m/yr of that day's non-repeating
+motion, and the 5.8 m/yr tilt on 20170803 is of that size. The trough's shape is
 untouched by any of this; what changes is the rate under it and the
 anomaly's value at the two ends of a one-day record.
 
 With two cycles the same idea gives the diurnal itself without a basis: the
 **hour-of-day composite**, the median anomaly in each UTC hour over the days
-observed (the blue steps in `19_population_20170827.png`). It is −8 to −10
-mm from 05 to 09 UTC, back above zero by 13 UTC and +7 to +9 mm from 15 to
+observed (the blue steps in `19_population_20170827.png`). It is −9 to −10
+mm from 06 to 08 UTC, back above zero by 13 UTC and +6 to +8 mm from 15 to
 19 UTC — the trough and the afternoon high of the text above, read straight
-off the data — with an RMS of 5.7 mm against 5.3 mm that did not repeat
-from one day to the next (the second night's trough is twice the first's).
-Held-out rock's composite is 0.36 mm. The fraction that repeats is the
+off the data — with an RMS of 5.35 mm against 4.70 mm that did not repeat
+from one day to the next (the second night's trough is three times the
+first's). Held-out rock's composite is 0.38 mm, against 0.37 mm that did
+not repeat. The fraction that repeats is the
 number the one-day campaigns cannot supply: a single cycle can be separated
 from its trend, but not from its own noise.
 
@@ -420,53 +420,53 @@ its linear trend instead
 
 | UTC day | span | trough | depth | back above trend | rock RMS |
 |---|---:|---:|---:|---:|---:|
-| 2016-08-26 | 20:12–23:54 | 20:18 | −2.7 mm | 20:42 | 0.14 mm |
-| 2017-07-13 | 19:48–23:54 | 21:06 | −6.8 mm | 22:18 | 0.23 mm |
-| 2017-07-14 | 00:18–19:42 | 19:06 | −7.3 mm | — | 0.22 mm |
-| 2017-08-04 | 00:00–22:30 | 11:36 | −17.0 mm | 19:36 | 0.80 mm |
-| 2017-08-28 | 00:00–24:00 | 14:06 | −9.3 mm | 14:48 | 0.37 mm |
-| 2017-08-29 | 00:00–20:42 | 05:36 | −20.6 mm | 12:18 | 0.54 mm |
-| 2017-09-15 | 06:00–20:30 | 20:24 | −3.7 mm | — | 0.16 mm |
-| 2018-07-10 | 13:36–20:30 | 14:00 | −6.6 mm | 14:24 | 0.22 mm |
-| 2018-08-09 | 00:06–24:00 | 11:30 | −10.4 mm | 13:00 | 0.34 mm |
-| 2018-08-10 | 00:00–17:24 | 14:48 | −32.2 mm | — | 0.32 mm |
-| 2019-07-19 | 17:48–24:00 | 23:42 | −6.9 mm | — | 0.09 mm |
-| 2019-07-20 | 00:00–24:00 | 19:12 | −9.0 mm | 21:42 | 0.46 mm |
-| 2019-07-21 | 00:00–15:30 | 06:18 | −10.4 mm | 07:30 | 0.58 mm |
+| 2016-08-26 | 20:12–23:54 | 20:12 | −0.6 mm | 21:06 | 0.19 mm |
+| 2017-07-13 | 19:48–23:54 | 19:48 | −6.8 mm | 22:18 | 0.27 mm |
+| 2017-07-14 | 00:18–19:42 | 19:42 | −6.5 mm | — | 0.21 mm |
+| 2017-08-04 | 00:00–22:30 | 08:18 | −12.1 mm | 20:18 | 0.75 mm |
+| 2017-08-28 | 00:00–24:00 | 00:00 | −5.6 mm | 02:06 | 0.40 mm |
+| 2017-08-29 | 00:00–20:42 | 07:30 | −18.3 mm | 12:18 | 0.62 mm |
+| 2017-09-15 | 06:00–20:30 | 20:30 | −3.3 mm | — | 0.16 mm |
+| 2018-07-10 | 13:36–20:30 | 13:36 | −1.1 mm | 14:30 | 0.33 mm |
+| 2018-08-09 | 00:06–24:00 | 10:18 | −6.1 mm | 15:00 | 0.37 mm |
+| 2018-08-10 | 00:00–17:24 | 14:42 | −26.3 mm | — | 0.35 mm |
+| 2019-07-19 | 17:48–24:00 | 23:48 | −4.4 mm | — | 0.08 mm |
+| 2019-07-20 | 00:00–24:00 | 19:18 | −5.3 mm | 23:42 | 0.47 mm |
+| 2019-07-21 | 00:00–15:30 | 06:30 | −3.5 mm | 10:18 | 0.59 mm |
 
 Thirteen UTC days across eight scenes. 2017-08-04 is now read from
 `20170803_full` rather than the GAMMA scene, which is why its bedrock RMS is
-0.80 mm here against the 0.68 mm v0.5.0 reported.
+0.75 mm here against the 0.68 mm v0.5.0 reported.
 
 **The measured headings changed this table.** With every campaign drawn at
 105°, v0.5.0 reported a night-time trough on three of four days — 07-14,
 08-04 and 08-29 correlated at 0.70–0.78. With the masks on their measured
-headings July has no trough at night (+1 to +3 mm from 05 to 11 UTC; its
-minimum is −7 mm at 19 UTC); rerunning it with the sub-line azimuth shifts
+headings July has no trough at night (+1 to +3 mm from 05 to 10 UTC; its
+minimum is −6 mm at 18–19 UTC); rerunning it with the sub-line azimuth shifts
 but the old 105° heading brings the old trough back (−5 mm at 05–07 UTC,
 ice rate −4.0 m/yr), and the measured 111.4° with no shifts leaves it gone.
 The 105° mask was 6.4° off its ground — 560 m at 5 km — and counted the
 wrong pixels as ice; July's v0.5.0 trough is retracted. July's hourly
-medians correlate with 08-04's at 0.55 once both are read against their
+medians correlate with 08-04's at 0.56 once both are read against their
 same-hour rates (both slide from above trend at 00–03 UTC to below it by
-evening) and with 08-29's at −0.58. The two August days, 25 days apart in
+evening) and with 08-29's at −0.57. The two August days, 25 days apart in
 two campaigns focused from raw, both fall behind their trend from 04–05 UTC
-and sit 7–17 mm below it from 06 through 11. Beyond that the comparison
+and sit 5–18 mm below it from 06 through 11. Beyond that the comparison
 depends on the line the anomaly is read against. Against each pixel's
-linear trend the hourly ice medians correlate at 0.64 and 08-04 is back
-above trend by 13:24 UTC, as 08-29 is by 12:18; against the same-hour rate
-— +31.2 m/yr rather than the line's +24.5 — they correlate at **0.28**, and
+linear trend the hourly ice medians correlate at 0.65 and 08-04 is back
+above trend by 18:30 UTC, as 08-29 is by 12:24; against the same-hour rate
+— +31.0 m/yr rather than the line's +25.0 — they correlate at **0.31**, and
 08-04 stays 3–8 mm below its trend until 19–20 UTC while 08-29 is 6–13 mm
-above from 13 UTC on. The two lines differ by 6.7 m/yr, 9 mm over the day,
+above from 13 UTC on. The two lines differ by 5.8 m/yr, 8 mm over the day,
 and a one-day record fixes a same-hour rate to about ±5 m/yr, so the 08-04
 afternoon is not settled by that record alone. 08-28 correlates with
-neither August day (−0.26, 0.17). The three sub-cycle days: 09-15 begins at
+neither August day (−0.26, 0.31). The three sub-cycle days: 09-15 begins at
 06 UTC and is flat to ±2 mm against a 14.5 h trend; 07-10 runs 13:36–20:30
-UTC and is flat to ±2 mm; 08-26 is a 3.7 h evening, 20:12–23:54 UTC, whose
-deepest point is −2.7 mm. The bedrock's hourly medians correlate between
-the 2017 full days at −0.48 to +0.28 with no pattern, and the lower antenna
-reproduces the ice entries (0.21 for the August pair against the same-hour
-rates, 0.58 against the linear trends; 0.56 and −0.62 for July against the
+UTC and is flat to ±1 mm; 08-26 is a 3.7 h evening, 20:12–23:54 UTC, whose
+deepest point is −0.6 mm. The bedrock's hourly medians correlate between
+the 2017 full days at −0.41 to +0.28 with no pattern, and the lower antenna
+reproduces the ice entries (0.22 for the August pair against the same-hour
+rates, 0.59 against the linear trends; 0.58 and 0.17 for July against the
 two).
 
 In the rock panel, on 08-04 the bedrock median has the ice's shape
@@ -475,6 +475,26 @@ lines removed from both: +1 mm at 11 UTC while the ice is at −15, falling
 through the evening as the ice climbs). On the other campaigns the
 correlation is −0.79 (July, at 0.2 mm rock RMS), −0.48, −0.58 and −0.31,
 and the rock stays within ±1.6 mm throughout.
+
+**`examples/baker_velocity.py`** puts the same population series on that
+clock as velocity: each campaign's ice median differenced over a centred
+2 h window, stacked by hour of day, with the held-out bedrock underneath at
+the same treatment ([`31_velocity.png`](figures/31_velocity.png)).
+
+![LOS velocity by hour of day](figures/31_velocity.png)
+
+| campaign | ice peak-to-peak | ice peak (UTC) | rock peak-to-peak | 24 h harmonic |
+|---|---:|---:|---:|---:|
+| `20170713_full` | 37.9 m/yr | 21–22 h | 6.6 m/yr | 21.8 m/yr |
+| `20170803_full` | 116.3 m/yr | 21–22 h | 15.6 m/yr | 51.3 m/yr |
+| `20170827` | 46.7 m/yr | 23–24 h | 8.0 m/yr | 25.5 m/yr |
+| `20180808` | 57.9 m/yr | 16–17 h | 4.2 m/yr | 59.5 m/yr |
+| `20190719` | 50.3 m/yr | 00–01 h | 5.8 m/yr | 16.1 m/yr |
+
+The composite is the measured hour-of-day spread, noise included; the last
+column is the peak-to-peak a 24 h harmonic fitted to the same series
+implies, which assumes the waveform. The ice composite runs 6 to 14 times
+the bedrock's on the same clock.
 
 ## Does it repeat between years?
 
@@ -488,27 +508,28 @@ composite is taken out.
 
 | campaign | days | secular removed | composite RMS | did not repeat | trough (UTC) | rock composite |
 |---|---:|---:|---:|---:|---:|---:|
-| `20170827` | 2 | +14.1 m/yr | 5.69 mm | 5.33 mm | 08 h, −10.2 mm | 0.37 mm |
-| `20180808` | 2 | +29.8 m/yr | 10.37 mm | 7.09 mm | 14 h, −15.2 mm | 0.31 mm |
-| `20190719` | 3 | +16.3 m/yr | 2.90 mm | 2.54 mm | 19 h, −6.1 mm | 0.47 mm |
+| `20170827` | 2 | +14.1 m/yr | 5.37 mm | 4.69 mm | 06 h, −9.9 mm | 0.38 mm |
+| `20180808` | 2 | +30.5 m/yr | 10.19 mm | 6.62 mm | 14 h, −13.2 mm | 0.32 mm |
+| `20190719` | 3 | +17.7 m/yr | 2.63 mm | 2.07 mm | 19 h, −5.1 mm | 0.47 mm |
 
-The ice composite is 6 to 34 times its own bedrock composite. In every
+The ice composite is 6 to 32 times its own bedrock composite (14, 32 and 6
+by campaign). In every
 campaign the part that does **not** repeat is nearly as large as the part
-that does — 5.3 against 5.7 mm, 7.1 against 10.4, 2.5 against 2.9 — the
+that does — 4.7 against 5.4 mm, 6.6 against 10.2, 2.1 against 2.6 — the
 displacement-domain counterpart of the ±5 m/yr of the section above.
 
 Across campaigns, on the hourly clock of `baker_seasons.py`, 2017-08-04
-correlates with 2018-08-09 at 0.57 and with 2018-08-10 at 0.73, and
-2017-08-29 with 2018-08-09 at 0.52 — four August days in two years, each
-with its trough between 05 and 15 UTC. The July days do not: 2019-07-20 sits
-at −0.74 against 2018-08-09 and −0.20 against 2017-08-04, and the July
-composite is a third the size of August's. Eight campaigns cannot separate
+correlates with 2018-08-09 at 0.61 and with 2018-08-10 at 0.73, and
+2017-08-29 with 2018-08-09 at 0.60 — four August days in two years, each
+with its trough between 07 and 15 UTC. The July days do not: 2019-07-20 sits
+at −0.74 against 2018-08-09 and −0.35 against 2017-08-04, and the July
+composite is a quarter to a half the size of August's. Eight campaigns cannot separate
 a seasonal difference from three campaigns' weather.
 
 Two cautions before the table is quoted. `20180808`'s composite after 17:30
 UTC rests on one day, because the record ends at 17:25 on the second, and
 the band in the figure vanishes there to say so. And that campaign's second
-day reaches −30 mm at 14 UTC, the largest excursion anywhere in the data
+day reaches −26 mm at 14–15 UTC, the largest excursion anywhere in the data
 set, which has not yet been checked against that day's coherence.
 
 ## The weather, and what the ice does with it
@@ -529,7 +550,7 @@ The three campaigns with the largest ice anomalies are the three with the
 most frequent temperature inversions — `20170803` inverted in 31 % of its
 epochs, `20180808` 27 %, `20170827` 18 % — and every campaign that never
 inverted has an ice anomaly under 4 mm RMS. On the two strongest, the
-held-out bedrock anomaly correlates with the lapse rate at 0.79 and 0.78.
+held-out bedrock anomaly correlates with the lapse rate at 0.68 and 0.73.
 How much of a stratified delay can reach the glacier through the
 corrections is a separate calculation:
 `gpri_tools.refractivity.stratified_delay` integrates Smith–Weintraub
@@ -548,9 +569,9 @@ rate's own p16-to-p84 swing (−5.9 to +2.1 °C/km):
 | + linear range screen on rock | −9.7 mm | +0.8 mm |
 | + turbulence screen on rock | −9.3 mm | +0.1 mm |
 | predicted, mm per °C/km | −1.16 | +0.013 |
-| observed, mm per °C/km | −2.35 | +0.160 |
+| observed, mm per °C/km | −2.26 | +0.168 |
 
-The predicted ice slope is about half the observed one, with the same sign,
+The predicted ice slope is 51 % of the observed one, with the same sign,
 and the model reproduces the sign flip between ice and rock. `20180808` is
 the same at 50 %, `20170827` 95 %; the two campaigns that never inverted
 show ~0 observed slope where the model predicts −0.7 to −0.9. One
@@ -563,7 +584,7 @@ Where the correction stops working is a matter of coverage. By range bin on
 
 | range (km) | rock px | ice px | raw ice | after | removed |
 |---|---:|---:|---:|---:|---:|
-| 4–5 | 829 | 91 | −29.5 mm | −1.95 mm | 93 % |
+| 4–5 | 829 | 91 | −29.3 mm | −1.93 mm | 93 % |
 | 5–6 | 2372 | 6002 | −33.4 | −0.82 | 98 % |
 | 6–7 | 2994 | 7974 | −44.3 | −0.73 | 98 % |
 | 7–8 | 286 | 7433 | −73.4 | −21.95 | 70 % |
@@ -587,9 +608,9 @@ per radar pixel; `baker_population.py --height-screen` writes the result
 beside the standard products (`19_population_<scene>_hz.png`). On the
 modelled field the height term removes 58 % of the stratification residual
 over the ice (−9.26 mm to −3.86 mm). On the real data it changes little:
-the `20170803_full` ice RMS goes from 10.94 to 10.57 mm and `20180808` from
-12.29 to 12.73, and the lapse-rate slope and correlation of the ice anomaly
-move by 3 % (−2.35 → −2.28 mm per °C/km at r = −0.80).
+the `20170803_full` ice RMS goes from 10.13 to 10.00 mm and `20180808` from
+11.84 to 12.27, and the lapse-rate slope and correlation of the ice anomaly
+move by 2 % (−2.26 → −2.22 mm per °C/km at r = −0.83, then −0.82).
 
 ![the ice against the air, 20170803](figures/22_weather_20170803_full.png)
 
@@ -607,15 +628,17 @@ correlation searched over ±12 h always peaks in magnitude at the ends, where
 one has simply been inverted. Both the displacement and its time derivative
 are reported, because the population series is a displacement and the
 integral of a harmonic lags it by a quarter cycle. Measured on the three
-campaigns with the largest anomalies, the ice displacement peak sits +1.7,
-+1.0 and −3.1 h behind the air temperature's, and the ice velocity peak
-−0.4, −4.6 and −8.2 h behind it. The records hold 1.0 to 1.9 cycles, so the
-phase is loosely constrained, and the velocity harmonics explain 0.09 to
-0.39 of the variance.
+campaigns with the largest anomalies, the ice displacement peak sits +1.6,
++1.0 and −10.9 h behind the air temperature's, and the ice velocity peak
+−2.2, −4.7 and +2.0 h behind it. The records hold 1.0 to 1.9 cycles, so the
+phase is loosely constrained, and the velocity harmonics explain 0.01 to
+0.63 of the variance.
 
 ### Which ice carries the waveform
 
 `examples/baker_pixels.py` asks which pixels carry the population waveform.
+It runs the ladder itself and stops there, so this section is measured
+before the temporal path-delay stage the population series now carry.
 Every ice pixel's corrected series is projected onto the population
 waveform (`gpri_tools.diurnal.waveform_share`: a least-squares share, 1 for
 a pixel that moves like the median, 0 for one that does not move with it),
@@ -787,17 +810,19 @@ outline — Coleman (16–20 thousand pixels), Roosevelt (8–11 thousand) and
 Thunder (~500) on every campaign, Mazama where its 200-odd pixels are in
 view (`20170913`, `20190719`) — after the validated correction (the linear
 epoch screen and the (5, 25) turbulence screen, fitted on every bedrock
-pixel), differenced over a centred 2 h window, positive toward the radar,
+pixel, then the temporal path delay), differenced over a centred 2 h
+window, positive toward the radar,
 in m/yr; the lower panel is the glacier-mean backscatter of the line
 above. Both sit on the UTC clock with the local night shaded. The window
 sets the noise, about ±20 m/yr on the two large catchments and more on
 the small ones, and the first hour of each record is a one-sided
 difference. Two things to note on it: on `20170713_full` all three
-catchments peak at 22:03 UTC — Coleman +58, Roosevelt +56, Thunder +36 m/yr
-— from +27, +40 and +4 at 21:33, an interval that spans the 10 dB gain step
-(between the 21:43 and 21:53 epochs), and fall back over the next hour; and
-on `20170913` Coleman and Roosevelt run at 30–60 m/yr toward the radar all
-day while Mazama and Thunder hover about zero.
+catchments peak together at 21:43 UTC — Coleman +33, Roosevelt +38, Thunder
++15 m/yr — an interval that spans the 10 dB gain step (between the 21:43
+and 21:53 epochs), and fall back over the next hour; and on `20170913`
+Coleman and Roosevelt run at 40 m/yr toward the radar all day (Coleman's
+p16–p84 is +38 to +50) while Mazama and Thunder hover about zero, +2 and
++7.
 
 ![catchment-mean LOS velocity and the glacier's mean backscatter, 20190719](figures/27_catchments_20190719.png)
 
