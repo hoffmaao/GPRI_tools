@@ -123,6 +123,79 @@ The script prints the ladder's own sigma converted to metres on the same
 geometry (89 × 296 m on `20170713_full` at dec 16), so the smoothing scale
 and the measured separations can be read against each other.
 
+## The two antennas as an interferometer
+
+The GPRI-II receives on two antennas 25 cm apart on one mast, sampled in the
+same sweep, so `s_upper * conj(s_lower)` at one epoch has no temporal
+decorrelation, no deformation and no atmospheric delay beyond the difference
+over 25 cm.  What is left is geometry — the path-length difference set by
+each target's elevation angle — which makes it a topographic measurement the
+radar makes of itself.  `examples/baker_antenna_interferogram.py` forms it
+and compares it against the DEM `gpri_tools.heading.target_heights` reads.
+
+![the cross-antenna interferogram, 20170913](figures/35_antenna_ifg_20170913_lk3x15.png)
+
+Two things had to be handled before the comparison meant anything.  The two
+receive chains carry a relative phase that is constant across the scene and
+changes sweep to sweep; averaging epochs without removing it cancels the
+geometry instead of the noise, so each epoch's scene-constant phase is taken
+out before the epochs are stacked.  And the fit of the measured phase against
+the DEM's `sin(theta)` is **aliased**: with `2 pi B / lambda` of order ninety
+radians, slopes differing by about 0.7 fit nearly as well, so the script
+scores the slopes the geometry allows (one-way, two-way, half), refines
+locally, and prints the unconstrained scan beside them rather than trusting
+it.
+
+| campaign | resultant at k = 1 | refined slope | resultant | best registration | height agreement |
+|---|---:|---:|---:|---:|---:|
+| `20170713_full` | 0.160 | +1.21 | 0.411 | 0.434 | 65 m |
+| `20170803_full` | 0.172 | +1.21 | 0.426 | 0.442 | 62 m |
+| `20170827` | 0.013 | +0.81 | 0.021 | 0.028 | 199 m |
+| **`20170913`** | **0.897** | **+0.98** | **0.906** | 0.906 | **26 m** |
+| `20180808` | 0.023 | +2.23 | 0.051 | 0.057 | 63 m |
+| `20190719` | 0.014 | +0.81 | 0.018 | 0.024 | 203 m |
+
+On `20170913` the interferogram reads topography and says so unambiguously:
+the one-way slope wins at 0.897 against 0.048 for two-way and 0.149 for half,
+the refinement lands at 0.98 of the one-way prediction, and the residual
+against the DEM is 26 m of height at the median range of 5.2 km, where a
+cycle is 369 m.  The measured and predicted fringe patterns in the figure are
+the same picture.
+
+On the other five it does not, and three explanations were checked and ruled
+out: the two antennas' epoch lists align exactly by index on every campaign
+(437/437, 1335/1335 and so on); the per-epoch cross-antenna coherence is the
+same everywhere (0.174 to 0.181 median, epoch-to-epoch consistency 0.279 to
+0.286), so the interferograms are of equal quality; and scanning the DEM's
+registration over ±12 azimuth and ±4 range pixels moves the agreement by at
+most 0.02.  What separates `20170913` from the rest is therefore still open.
+
+## Speckle tracking, and what it cannot see here
+
+`gpri_tools.tracking.patch_offsets` cross-correlates intensity patches, which
+measures displacement with no phase ambiguity and no coherence requirement,
+at a resolution set by the cell size.  `examples/baker_tracking.py` runs it
+between two epochs and puts the answer beside the phase's over the same
+interval.
+
+The result is a null with a number on it.  Over 2 h on `20170913`, held-out
+bedrock gives a range offset of −0.019 ± 0.054 samples — 41 mm in line of
+sight, against the phase's 1.94 mm over the same interval; on
+`20170803_full`, −0.002 ± 0.100 samples, 75 mm against 10.68 mm.  Only about
+a third of patches clear a correlation of 0.3 at all, the median peak
+correlation is 0.02, and **no ice patch ever clears it**: the pattern inside
+a patch is speckle, which does not repeat over hours, rather than terrain
+texture that would.
+
+So tracking on this instrument at these separations cannot see the ice, and
+on rock it is some forty times coarser than the phase.  Read the other way,
+the noise floor says how fast a target would have to move before tracking
+could measure it at all — of order a metre a day in line of sight at three
+sigma over a 2 h pair — which is the number to have before reaching for
+tracking on faster ice than Baker's.  Multilooking the intensity first
+(`--looks`) raises the median correlation to 0.09 and makes the offsets
+noisier, so it is not the default.
+
 ## Reproduce
 
 ```bash
@@ -137,4 +210,10 @@ python examples/baker_decorrelation.py --scene 20170827 --lags 1 2 3 30 60 90 18
 for s in $CAMPAIGNS 20180709; do
   python examples/baker_turbulence.py --scene $s --rgi
 done
+# the two antennas as an interferometer, against the DEM
+for s in $CAMPAIGNS; do
+  python examples/baker_antenna_interferogram.py --scene $s --epochs 16
+done
+# speckle tracking beside the phase, over a two-hour pair
+python examples/baker_tracking.py --scene 20170913 --hours 2 --rgi
 ```
