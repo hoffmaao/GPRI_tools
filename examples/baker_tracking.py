@@ -48,7 +48,7 @@ from gpri_tools.glaciers import (glacier_mask, load_outlines,            # noqa:
                                  stable_ground_mask)
 from gpri_tools.heading import scene_heading                             # noqa: E402
 from gpri_tools.timeseries import los_displacement                       # noqa: E402
-from gpri_tools.tracking import patch_offsets                            # noqa: E402
+from gpri_tools.tracking import patch_offsets, texture                   # noqa: E402
 
 
 def main():
@@ -57,20 +57,32 @@ def main():
     ap.add_argument("--scene", default="20170803_full")
     ap.add_argument("--hours", type=float, default=12.0,
                     help="separation between the two epochs tracked")
-    ap.add_argument("--patch", type=int, nargs=2, default=(48, 384),
-                    help="patch size in (multilooked) cells, azimuth x range; "
-                         "a patch has to hold enough terrain texture to match, "
-                         "and at this instrument's sampling that means a large "
-                         "one")
-    ap.add_argument("--step", type=int, nargs=2, default=(24, 192),
-                    help="patch spacing; half the patch by default overlaps")
+    ap.add_argument("--patch", type=int, nargs=2, default=(48, 128),
+                    help="patch size in multilooked cells, azimuth x range. "
+                         "Correlation rises steeply with it on this data: at "
+                         "4 x 16 looks the median peak goes 0.13, 0.43, 0.89, "
+                         "0.93 for patches of 16x32, 32x64, 48x128, 64x256")
+    ap.add_argument("--step", type=int, nargs=2, default=(8, 24),
+                    help="patch spacing in multilooked cells; well under the "
+                         "patch, because a patch large enough to correlate "
+                         "would otherwise leave only a handful of them")
     ap.add_argument("--search", type=int, nargs=2, default=(2, 4))
-    ap.add_argument("--looks", type=int, nargs=2, default=(1, 1),
+    ap.add_argument("--looks", type=int, nargs=2, default=(4, 16),
                     help="intensity multilooking before the correlation: "
                          "speckle is what the patches would otherwise match, "
                          "and it is exactly what does not repeat. Offsets are "
                          "converted back to full-resolution samples")
+    ap.add_argument("--raw-intensity", dest="texture", action="store_false",
+                    help="correlate intensity instead of high-passed dB "
+                         "texture; on this data that drops the median peak "
+                         "correlation from about 0.93 to 0.02, which is the "
+                         "reason the default is what it is")
+    ap.add_argument("--highpass", type=float, default=6.0,
+                    help="sigma of the brightness trend removed, in cells")
     ap.add_argument("--min-correlation", type=float, default=0.3)
+    ap.add_argument("--min-fraction", type=float, default=0.05,
+                    help="share of a patch's footprint a population needs "
+                         "before the patch is counted as that population")
     ap.add_argument("--decimate", type=int, default=16,
                     help="decimation of the phase product compared against")
     ap.add_argument("--stable-coherence", type=float, default=0.85)
@@ -101,21 +113,23 @@ def main():
     wavelength = stack.wavelength
     stack.close()
 
-    def look(z, looks):
-        la_, lr_ = int(looks[0]), int(looks[1])
+    la_l, lr_l = int(args.looks[0]), int(args.looks[1])
+
+    def prepare(z):
+        if args.texture:
+            return texture(z, highpass=args.highpass, looks=args.looks)
         p_ = np.abs(z) ** 2
-        if (la_, lr_) == (1, 1):
+        if (la_l, lr_l) == (1, 1):
             return p_
         na_ = p_.shape[0] // la_ * la_
         nr_ = p_.shape[1] // lr_ * lr_
         return p_[:na_, :nr_].reshape(na_ // la_, la_, nr_ // lr_, lr_).mean(axis=(1, 3))
 
-    la_l, lr_l = int(args.looks[0]), int(args.looks[1])
     t0 = time.time()
-    off = patch_offsets(look(a, args.looks), look(b, args.looks),
-                        patch=tuple(args.patch), step=tuple(args.step),
-                        search=tuple(args.search))
-    print(f"{off}\n  in {time.time() - t0:.0f} s at {la_l} x {lr_l} looks")
+    off = patch_offsets(prepare(a), prepare(b), patch=tuple(args.patch),
+                        step=tuple(args.step), search=tuple(args.search))
+    print(f"{off}\n  in {time.time() - t0:.0f} s at {la_l} x {lr_l} looks on "
+          f"{'high-passed dB texture' if args.texture else 'raw intensity'}")
     del a, b
     # back to full-resolution samples and lines
     off.azimuth *= la_l
@@ -168,18 +182,50 @@ def main():
     del d
     stack2.close()
 
-    # patch centres on the decimated grid the masks live on
-    pr_rows = np.clip(off.rows // args.decimate, 0, ice.shape[0] - 1)
-    pr_cols = np.clip(off.cols // args.decimate, 0, ice.shape[1] - 1)
-    ice_p = ice[np.ix_(pr_rows, pr_cols)]
-    rock_p = held_m[np.ix_(pr_rows, pr_cols)]
-    phase_p = phase_mm[np.ix_(pr_rows, pr_cols)]
+    # A patch covers a large footprint, so which population it belongs to is
+    # a question about the footprint, not about the pixel at its centre: take
+    # the mask fractions over the whole patch and call it ice or rock when
+    # that population dominates it.
+    # `--decimate` is range-only in this pipeline: the mask grid has the
+    # native number of azimuth lines and range/decimate samples, so only the
+    # column index is divided
+    half_a = args.patch[0] * la_l // 2
+    half_r = args.patch[1] * lr_l // 2
+    # the fit/held split exists to keep an estimator honest and tracking
+    # fits nothing on bedrock, so the control here is all the stable ground
+    rock_mask = stable
+    ice_f = np.zeros(off.shape)
+    rock_f = np.zeros(off.shape)
+    phase_p = np.full(off.shape, np.nan)
+    for i, r0 in enumerate(off.rows):
+        r_lo = max(int(r0 - half_a), 0)
+        r_hi = min(int(r0 + half_a) + 1, ice.shape[0])
+        for j, c0 in enumerate(off.cols):
+            c_lo = max(int((c0 - half_r) // args.decimate), 0)
+            c_hi = min(int((c0 + half_r) // args.decimate) + 1, ice.shape[1])
+            if r_hi <= r_lo or c_hi <= c_lo:
+                continue
+            blk_i = ice[r_lo:r_hi, c_lo:c_hi]
+            blk_r = rock_mask[r_lo:r_hi, c_lo:c_hi]
+            ice_f[i, j] = blk_i.mean()
+            rock_f[i, j] = blk_r.mean()
+            sel = blk_i | blk_r
+            if sel.any():
+                phase_p[i, j] = np.nanmean(phase_mm[r_lo:r_hi, c_lo:c_hi][sel])
+    ice_p = ice_f >= args.min_fraction
+    rock_p = rock_f >= args.min_fraction
+    print(f"  patch footprints: {ice_p.sum()} are at least "
+          f"{100 * args.min_fraction:.0f} % ice and {rock_p.sum()} at least "
+          f"that much bedrock, of {off.shape[0] * off.shape[1]}; the richest "
+          f"footprint is {100 * ice_f.max():.0f} % ice and "
+          f"{100 * rock_f.max():.0f} % bedrock, which is what a patch this "
+          f"size can resolve")
     good = off.valid(args.min_correlation)
 
     print(f"\n{'population':18s} {'patches':>8s} {'range offset':>26s} "
           f"{'LOS (mm)':>20s} {'cross-range (m)':>18s} {'phase LOS (mm)':>16s}")
     rows_out = {}
-    for label, m in (("RGI ice", ice_p & good), ("held-out rock", rock_p & good)):
+    for label, m in (("RGI ice", ice_p & good), ("bedrock", rock_p & good)):
         if not m.any():
             print(f"{label:18s} {'0':>8s}  no patches")
             continue
@@ -192,11 +238,11 @@ def main():
               f"{np.nanmedian(los_mm[m]):+9.1f} +/- {np.nanstd(los_mm[m]):6.1f} "
               f"{np.nanmedian(cross_m[m]):+8.2f} +/- {np.nanstd(cross_m[m]):5.2f} "
               f"{np.nanmedian(phase_p[m]):+15.2f}")
-    print(f"\nthe tracking noise floor over {dt_h:.1f} h is the rock row's "
-          f"scatter: {rows_out.get('held-out rock', [np.nan] * 7)[3]:.0f} mm in "
-          f"line of sight, against the phase's {np.nanstd(phase_p[rock_p & good]):.2f} mm")
-    if "RGI ice" in rows_out:
-        floor = rows_out["held-out rock"][3] if "held-out rock" in rows_out else np.nan
+    floor = rows_out.get("bedrock", [np.nan] * 7)[3]
+    print(f"\nthe tracking noise floor over {dt_h:.1f} h is the bedrock row's "
+          f"scatter: {floor:.0f} mm in line of sight, against the phase's "
+          f"{np.nanstd(phase_p[rock_p & good]):.2f} mm there")
+    if "RGI ice" in rows_out and np.isfinite(floor):
         print(f"a glacier would have to move {3 * floor / dt_h * 24 / 1000:.1f} m/day "
               f"in line of sight for tracking to see it at three sigma over "
               f"this interval")
@@ -217,7 +263,7 @@ def main():
         ax.set_xlabel("Range (patch)")
         ax.set_ylabel("Azimuth (patch)")
     for label, m, colour in (("ice", ice_p & good, "tab:blue"),
-                             ("rock", rock_p & good, "tab:red")):
+                             ("bedrock", rock_p & good, "tab:red")):
         if m.any():
             axes[2].plot(phase_p[m], los_mm[m], ".", ms=2, alpha=0.3,
                          color=colour, label=label)
@@ -237,7 +283,8 @@ def main():
     np.savez(npz, azimuth=off.azimuth, range=off.range,
              correlation=off.correlation, rows=off.rows, cols=off.cols,
              los_mm=los_mm, cross_m=cross_m, phase_mm=phase_p,
-             ice=ice_p, rock=rock_p, hours=dt_h, d_range=d_range)
+             ice=ice_p, rock=rock_p, ice_fraction=ice_f,
+             rock_fraction=rock_f, hours=dt_h, d_range=d_range)
     print(f"wrote {npz}")
 
 

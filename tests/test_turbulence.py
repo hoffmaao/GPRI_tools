@@ -2,7 +2,8 @@
 import numpy as np
 import pytest
 
-from gpri_tools.turbulence import PowerLaw, power_law, structure_function
+from gpri_tools.turbulence import (FlooredPowerLaw, PowerLaw, power_law,
+                                   power_law_with_floor, structure_function)
 
 
 def _points(n=4000, seed=0):
@@ -64,3 +65,41 @@ def test_power_law_round_trips_its_own_curve():
 def test_power_law_refuses_a_single_point():
     with pytest.raises(ValueError, match="two positive"):
         power_law(np.array([100.0]), np.array([1.0]))
+
+
+def test_the_floor_separates_noise_from_a_real_exponent():
+    """A turbulent field plus white noise: the floor is the noise, not a flat air."""
+    r = np.logspace(1.5, 3.5, 12)
+    noise_rms, alpha, amp = 2.0, 5 / 3, 4.0
+    D = 2 * noise_rms ** 2 + amp * (r / 1000.0) ** alpha
+    plain = power_law(r, D, r0=1000.0)
+    floored = power_law_with_floor(r, D, r0=1000.0)
+    assert isinstance(floored, FlooredPowerLaw)
+    assert floored.exponent == pytest.approx(alpha, abs=0.05)
+    assert floored.amplitude == pytest.approx(amp, rel=0.1)
+    assert floored.noise_rms == pytest.approx(noise_rms, rel=0.1)
+    # the unfloored fit is dragged well below the true exponent by the floor
+    assert plain.exponent < alpha - 0.3
+
+
+def test_pure_noise_gives_all_floor_and_no_structure():
+    r = np.logspace(1.5, 3.5, 10)
+    D = np.full(r.size, 8.0)
+    f = power_law_with_floor(r, D, r0=1000.0)
+    assert f.noise_rms == pytest.approx(2.0, rel=0.05)
+    assert abs(f.amplitude) < 0.2
+
+
+def test_the_floor_can_be_pinned_and_stays_non_negative():
+    r = np.logspace(2, 3.5, 8)
+    D = 3.0 * (r / 1000.0) ** 1.0            # no floor at all
+    f = power_law_with_floor(r, D, r0=1000.0)
+    assert f.floor >= 0.0
+    pinned = power_law_with_floor(r, D + 5.0, r0=1000.0, floor=5.0)
+    assert pinned.floor == 5.0
+    assert pinned.exponent == pytest.approx(1.0, abs=0.05)
+
+
+def test_floored_fit_needs_three_points():
+    with pytest.raises(ValueError, match="three points"):
+        power_law_with_floor(np.array([10.0, 100.0]), np.array([1.0, 2.0]))

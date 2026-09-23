@@ -52,7 +52,8 @@ from gpri_tools.glaciers import (glacier_mask, load_outlines,            # noqa:
                                  stable_ground_mask)
 from gpri_tools.heading import scene_heading                             # noqa: E402
 from gpri_tools.timeseries import los_displacement                       # noqa: E402
-from gpri_tools.turbulence import power_law, structure_function          # noqa: E402
+from gpri_tools.turbulence import (power_law_with_floor,                 # noqa: E402
+                                   structure_function)
 
 
 def main():
@@ -68,6 +69,10 @@ def main():
     ap.add_argument("--sigma", type=float, nargs=2, default=(5.0, 25.0),
                     help="the ladder's screen width, in pixels; printed in "
                          "metres for comparison with the separations")
+    ap.add_argument("--lag", type=int, default=1,
+                    help="epochs the 'pair' field differences over: one "
+                         "cadence is dominated by per-pixel noise, and the "
+                         "atmosphere's own change grows with the interval")
     ap.add_argument("--field", default="pair", choices=("pair", "cumulative"),
                     help="'pair' measures the epoch-to-epoch increment, which "
                          "is the atmosphere's own change over one cadence; "
@@ -81,6 +86,12 @@ def main():
                          "mask by default")
     ap.add_argument("--max-pairs", type=int, default=60_000,
                     help="pixel pairs sampled per separation bin per epoch")
+    ap.add_argument("--floor", default="crb", choices=("crb", "fit", "none"),
+                    help="where the separation-independent part of D comes "
+                         "from: 'crb' pins it at the Cramer-Rao noise the "
+                         "pairs' own coherence implies, which a handful of "
+                         "separation bins cannot constrain on its own; 'fit' "
+                         "solves for it; 'none' fits a bare power law")
     ap.add_argument("--r0", type=float, default=1000.0,
                     help="separation the amplitude is quoted at, metres")
     ap.add_argument("--utc-offset", type=float, default=-7.0)
@@ -121,12 +132,13 @@ def main():
     d = d * 1000.0                                            # mm
     t = np.asarray(times, float)
     if args.field == "pair":
-        # the change over one cadence: what the atmosphere did between two
+        # the change over --lag cadences: what the atmosphere did between two
         # acquisitions, with everything static differenced away
-        cadence = float(np.median(np.diff(t)) * 24 * 60)
-        d = np.diff(d, axis=0)
-        t = t[1:]
-        print(f"measuring the {cadence:.1f} min increment")
+        k_lag = max(1, int(args.lag))
+        gap = float(np.median(np.diff(t)) * 24 * 60 * k_lag)
+        d = d[k_lag:] - d[:-k_lag]
+        t = t[k_lag:]
+        print(f"measuring the {gap:.1f} min increment (lag {k_lag})")
     keep = np.arange(0 if args.field == "pair" else 1, d.shape[0],
                      max(1, args.stride))
     origin = (net.epochs[0].hour + net.epochs[0].minute / 60.0
@@ -152,32 +164,57 @@ def main():
           f"{args.sigma[0]:g} x {args.sigma[1]:g} px "
           f"= {sig_m[0]:.0f} x {sig_m[1]:.0f} m")
 
+    # the noise a pair of this coherence must carry, from the Cramer-Rao
+    # bound the rest of this package weights with: a difference of two
+    # independent pixels sits at 2 sigma^2 however far apart they are
+    gam = np.clip(mean_cc[stable], 0.05, 0.999)
+    sigma_rad = np.sqrt((1 - gam ** 2) / (2 * gam ** 2))
+    sigma_mm = float(np.median(np.abs(los_displacement(sigma_rad,
+                                                       stack.wavelength)) * 1000.0))
+    if args.field == "pair":
+        sigma_mm *= np.sqrt(2.0)          # a pair differences two acquisitions
+    crb_floor = 2.0 * sigma_mm ** 2
+    print(f"the pairs' coherence implies {sigma_mm:.2f} mm per pixel, so a "
+          f"noise floor of {crb_floor:.2f} mm^2 in D")
+
     g = np.random.default_rng(0)
     t0 = time.time()
-    curves, alpha, amp, rms, used = [], [], [], [], []
+    curves, alpha, amp, rms, floors, used = [], [], [], [], [], []
     for k in keep:
         centres, D, counts = structure_function(d[k][stable], px, py, bins,
                                                 max_pairs=args.max_pairs, rng=g)
         try:
-            fit = power_law(centres, D, r0=args.r0)
+            pinned = (None if args.floor == "fit"
+                      else (0.0 if args.floor == "none" else crb_floor))
+            fit = power_law_with_floor(centres, D, r0=args.r0, floor=pinned)
         except ValueError:
-            continue                      # nothing positive to fit at this epoch
+            continue                      # nothing to fit at this epoch
         curves.append((centres, D))
         alpha.append(fit.exponent); amp.append(fit.amplitude); rms.append(fit.rms)
+        floors.append(fit.noise_rms)
         used.append(k)
     if not curves:
         sys.exit("no epoch had a structure function to fit")
     alpha = np.array(alpha); amp = np.array(amp); rms = np.array(rms)
+    floors = np.array(floors)
     used = np.array(used, int)
     print(f"{len(curves)} structure functions in {time.time() - t0:.0f} s "
           f"({len(keep) - len(curves)} epochs had nothing to fit)")
     hours = hod[used]
-    print(f"\nexponent      median {np.nanmedian(alpha):+.2f}, "
-          f"p16-p84 {np.nanpercentile(alpha, 16):+.2f} to {np.nanpercentile(alpha, 84):+.2f}")
-    print(f"D at {args.r0:.0f} m   median {np.nanmedian(amp):7.2f} mm^2 "
-          f"(rms difference {np.sqrt(np.nanmedian(amp)):.2f} mm), "
-          f"p16-p84 {np.nanpercentile(amp, 16):.2f} to {np.nanpercentile(amp, 84):.2f}")
-    print(f"log10 residual of the power law: median {np.nanmedian(rms):.3f}")
+    how = {"crb": "pinned at the Cramer-Rao noise", "fit": "fitted",
+           "none": "set to zero"}[args.floor]
+    print(f"\nnoise floor   {np.nanmedian(floors):6.2f} mm per pixel, {how}")
+    print(f"exponent      median {np.nanmedian(alpha):+.2f}, "
+          f"p16-p84 {np.nanpercentile(alpha, 16):+.2f} to {np.nanpercentile(alpha, 84):+.2f}"
+          f"   (above the floor; Kolmogorov is 2/3 to 5/3)")
+    above = np.nanmedian(amp)
+    print(f"structure at {args.r0:.0f} m: median {above:7.2f} mm^2 above the "
+          f"floor ({np.sqrt(max(above, 0)):.2f} mm rms), p16-p84 "
+          f"{np.nanpercentile(amp, 16):.2f} to {np.nanpercentile(amp, 84):.2f}")
+    share = np.nanmedian(amp / np.maximum(amp + 2 * floors ** 2, 1e-12))
+    print(f"at {args.r0:.0f} m the air is {100 * share:.0f} % of D and the "
+          f"noise floor is the rest")
+    print(f"residual of the fit: median {np.nanmedian(rms):.3g} mm^2")
     night = (hours >= np.mod(-args.utc_offset, 24)) & \
             (hours < np.mod(6 - args.utc_offset, 24))
     if night.any() and (~night).any():
@@ -192,6 +229,7 @@ def main():
     for (centres, D), h in zip(curves, hours):
         axes[0].plot(centres, D, "-", lw=0.7, alpha=0.5, color=cmap(h / 24.0))
     med = np.nanmedian(np.stack([D for _, D in curves]), axis=0)
+    axes[0].axhline(2 * np.nanmedian(floors) ** 2, color="0.4", ls=":", lw=1.4)
     axes[0].plot(np.nanmedian(np.stack([c for c, _ in curves]), axis=0), med,
                  "k-", lw=2.2)
     axes[0].set_xscale("log"); axes[0].set_yscale("log")
@@ -228,6 +266,7 @@ def main():
     npz = (root / f"turbulence_{args.antenna[0].lower()}_dec{args.decimate}"
            f"{'' if args.field == 'pair' else '_cumulative'}.npz")
     np.savez(npz, hours=hours, exponent=alpha, amplitude=amp, rms=rms,
+             noise_floor=floors, lag=int(args.lag),
              bins=bins, r0=args.r0,
              separations=np.stack([c for c, _ in curves]),
              structure=np.stack([D for _, D in curves]))

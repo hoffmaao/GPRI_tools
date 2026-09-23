@@ -46,7 +46,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from baker_aps import SCENES, integrate, load, split_mask                # noqa: E402
 from baker_movie import Resampler, decimated_geom                        # noqa: E402
 from gpri_tools.aps import epoch_screen_correction, turbulence_screen    # noqa: E402
-from gpri_tools.diurnal import (DIURNAL, MIN_CYCLES, fit_harmonics,      # noqa: E402
+from gpri_tools.diurnal import (DIURNAL, MIN_CYCLES,                     # noqa: E402
+                                effective_sample_factor, fit_harmonics,
                                 m_per_yr, range_dependence)
 from gpri_tools.geocode import BAKERBEND1_HEADING                        # noqa: E402
 from gpri_tools.glaciers import (glacier_mask, load_outlines,            # noqa: E402
@@ -140,16 +141,29 @@ def main():
 
     t = np.asarray(times, float)
     t0 = time.time()
-    fit = fit_harmonics(d * 1000.0, t)                      # mm
+    series = d * 1000.0                                     # mm
+    fit = fit_harmonics(series, t)
     amp = fit.amplitude()
-    sig = fit.amplitude_sigma()
+    # a white-noise error bar counts every epoch as independent, which a
+    # random-walk series is not: correct it by the autocorrelation of each
+    # pixel's own residual before anything is called significant
+    resid = series - fit.evaluate()
+    inflation = effective_sample_factor(resid)
+    sig_white = fit.amplitude_sigma()
+    sig = fit.amplitude_sigma(inflation=inflation)
+    del resid, series
     with np.errstate(invalid="ignore", divide="ignore"):
         snr = np.where(sig > 0, amp / sig, np.nan)
     origin = (net.epochs[0].hour + net.epochs[0].minute / 60.0
               + net.epochs[0].second / 3600.0)
     peak = fit.peak_time(origin_hour=origin)
     rate = m_per_yr(fit.secular, "mm")
-    print(f"per-pixel harmonic fit in {time.time() - t0:.0f} s")
+    print(f"per-pixel harmonic fit in {time.time() - t0:.0f} s; the residual's "
+          f"autocorrelation inflates the error bar by a median "
+          f"{np.nanmedian(inflation[ice]):.1f}x on ice and "
+          f"{np.nanmedian(inflation[held_m]):.1f}x on held-out bedrock "
+          f"(white-noise sigma would be {np.nanmedian(sig_white[ice]):.2f} mm "
+          f"on ice, corrected {np.nanmedian(sig[ice]):.2f} mm)")
 
     # ---- what the numbers say ---------------------------------------------
     print(f"\n{'population':18s} {'pixels':>8s} {'amplitude (mm)':>22s} "
@@ -245,6 +259,8 @@ def main():
     root.mkdir(parents=True, exist_ok=True)
     npz = root / f"harmonics_{args.antenna[0].lower()}_dec{args.decimate}{tag}.npz"
     np.savez(npz, amplitude=amp.astype(np.float32), sigma=sig.astype(np.float32),
+             sigma_white=sig_white.astype(np.float32),
+             inflation=inflation.astype(np.float32),
              peak=peak.astype(np.float32), rate=rate.astype(np.float32),
              ice=ice, held=held_m, fit=fit_m, slant_range=r.astype(np.float32),
              origin=origin, span_hours=span * 24.0)

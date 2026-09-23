@@ -32,7 +32,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-__all__ = ["structure_function", "power_law", "PowerLaw"]
+__all__ = ["structure_function", "power_law", "power_law_with_floor",
+           "PowerLaw", "FlooredPowerLaw"]
 
 
 def structure_function(values, x, y, bins, max_pairs=200_000, rng=None):
@@ -146,3 +147,84 @@ def power_law(r, D, r0=1000.0, weights=None):
     rms = float(np.sqrt(np.mean((A @ coef - ld) ** 2)))
     return PowerLaw(exponent=float(coef[1]), amplitude=float(10 ** coef[0]),
                     r0=float(r0), rms=rms, n=int(ok.sum()))
+
+
+@dataclass
+class FlooredPowerLaw:
+    """``D(r) = floor + amplitude * (r / r0) ** exponent``.
+
+    The floor is the part of the structure function that does not depend on
+    separation, which is what uncorrelated per-pixel noise contributes:
+    two independent pixels differ by ``2 * variance`` however far apart they
+    are.  Fitting it explicitly is the difference between measuring the air
+    and measuring the receiver — without it, a noise-dominated field returns
+    an exponent near zero and looks like a flat atmosphere.
+    """
+
+    exponent: float
+    amplitude: float
+    floor: float
+    r0: float
+    rms: float
+    n: int
+
+    @property
+    def noise_rms(self):
+        """The per-pixel noise the floor implies, in the field's units."""
+        return float(np.sqrt(max(self.floor, 0.0) / 2.0))
+
+    def __call__(self, r):
+        return (self.floor
+                + self.amplitude * (np.asarray(r, float) / self.r0) ** self.exponent)
+
+    def __repr__(self):
+        return (f"FlooredPowerLaw(exponent={self.exponent:.3f}, "
+                f"amplitude={self.amplitude:.4g} at r0={self.r0:g}, "
+                f"floor={self.floor:.4g} ({self.noise_rms:.3g} rms), "
+                f"rms={self.rms:.4g}, n={self.n})")
+
+
+def power_law_with_floor(r, D, r0=1000.0, exponents=None, floor=None):
+    """``D(r) = floor + A (r / r0) ** alpha``, fitted in the data's own units.
+
+    The exponent is scanned and the two linear coefficients solved exactly at
+    each one, the same trick :func:`gpri_tools.decorrelation.exponential_decorrelation`
+    uses, because a three-parameter nonlinear fit to a handful of points
+    finds local minima.  The floor is constrained non-negative — a negative
+    one is not a noise variance — and can be pinned with ``floor=``.
+
+    Fit this rather than :func:`power_law` whenever the field may be
+    noise-dominated at short separations, which for a per-pixel
+    interferometric phase is always.
+    """
+    rr = np.asarray(r, float)
+    dd = np.asarray(D, float)
+    ok = np.isfinite(rr) & np.isfinite(dd) & (rr > 0)
+    if ok.sum() < 3:
+        raise ValueError("a floor plus a power law needs three points")
+    rr, dd = rr[ok], dd[ok]
+    # the scan starts above zero on purpose: at exactly zero the power-law
+    # term is a constant and is perfectly degenerate with the floor, so the
+    # fit would split a flat curve arbitrarily between the two
+    grid = (np.linspace(0.05, 3.0, 296) if exponents is None
+            else np.asarray(exponents, float))
+    best = None
+    for alpha in grid:
+        basis = (rr / float(r0)) ** alpha
+        if floor is None:
+            A = np.column_stack([np.ones(rr.size), basis])
+            coef, *_ = np.linalg.lstsq(A, dd, rcond=None)
+            c0, c1 = float(coef[0]), float(coef[1])
+            if c0 < 0:                       # refit with the floor pinned at 0
+                c1 = float(np.dot(basis, dd) / max(np.dot(basis, basis), 1e-30))
+                c0 = 0.0
+        else:
+            c0 = float(floor)
+            c1 = float(np.dot(basis, dd - c0) / max(np.dot(basis, basis), 1e-30))
+        resid = c0 + c1 * basis - dd
+        rms = float(np.sqrt(np.mean(resid ** 2)))
+        if best is None or rms < best[0]:
+            best = (rms, float(alpha), c1, c0)
+    rms, alpha, amp, c0 = best
+    return FlooredPowerLaw(exponent=alpha, amplitude=amp, floor=c0,
+                           r0=float(r0), rms=rms, n=int(rr.size))

@@ -32,7 +32,45 @@ from dataclasses import dataclass
 
 import numpy as np
 
-__all__ = ["patch_offsets", "PatchOffsets"]
+__all__ = ["patch_offsets", "texture", "PatchOffsets"]
+
+
+def texture(image, highpass=6.0, looks=(1, 1)):
+    """Terrain pattern: high-passed dB intensity, with the speckle averaged.
+
+    Correlating raw intensity matches **speckle**, which is a different
+    random field in every acquisition and does not repeat over hours; what
+    repeats is the ridge-and-shadow pattern of the ground.  Taking dB turns
+    the multiplicative speckle additive, multilooking averages it down, and
+    subtracting a Gaussian-smoothed copy removes the brightness trend that
+    would otherwise dominate the correlation.  This is the same
+    preprocessing :func:`gpri_tools.coregister.texture` uses to hold a
+    campaign's heading, where it reaches correlations of 0.7.
+
+    Parameters
+    ----------
+    image : 2-D array
+        Complex SLC or real intensity.
+    highpass : float
+        Sigma of the Gaussian mean removed, in output cells.
+    looks : (int, int)
+        Intensity multilooking applied first.
+
+    Returns
+    -------
+    2-D float array on the multilooked grid.
+    """
+    from scipy.ndimage import gaussian_filter
+
+    p = np.abs(np.asarray(image)) ** 2 if np.iscomplexobj(image) \
+        else np.asarray(image, float)
+    la, lr = int(looks[0]), int(looks[1])
+    if (la, lr) != (1, 1):
+        na = p.shape[0] // la * la
+        nr = p.shape[1] // lr * lr
+        p = p[:na, :nr].reshape(na // la, la, nr // lr, lr).mean(axis=(1, 3))
+    db = 10.0 * np.log10(np.maximum(p, 1e-12))
+    return (db - gaussian_filter(db, float(highpass))).astype(np.float32)
 
 
 @dataclass

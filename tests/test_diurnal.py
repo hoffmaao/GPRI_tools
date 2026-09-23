@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from gpri_tools.diurnal import (DIURNAL, MIN_CYCLES, SEMIDIURNAL, atmospheric_coherence,
+                                effective_sample_factor,
                           hour_composite, m_per_yr, periodic_detrend,
                           secular_slope,
                           decompose_los, diurnal_amplitude, diurnal_phase,
@@ -422,3 +423,41 @@ def test_amplitude_sigma_needs_a_residual():
     f.residual_rms = None
     with pytest.raises(ValueError, match="residual_rms"):
         f.amplitude_sigma()
+
+
+def test_white_residuals_need_no_inflation():
+    rng = np.random.default_rng(10)
+    r = rng.normal(0, 1.0, (500, 50))
+    factor = effective_sample_factor(r)
+    assert np.allclose(np.median(factor), 1.0, atol=0.1)
+
+
+def test_an_ar1_residual_inflates_by_the_known_factor():
+    rng = np.random.default_rng(11)
+    rho = 0.8
+    n = 4000
+    e = rng.normal(0, 1.0, (n, 30))
+    r = np.zeros_like(e)
+    for k in range(1, n):
+        r[k] = rho * r[k - 1] + e[k]
+    expect = np.sqrt((1 + rho) / (1 - rho))
+    assert np.median(effective_sample_factor(r)) == pytest.approx(expect, rel=0.1)
+
+
+def test_a_random_walk_with_no_signal_is_not_significant_once_corrected():
+    """The failure the correction exists for: noise that fits a harmonic."""
+    rng = np.random.default_rng(12)
+    t = np.linspace(0, 2.0, 600)
+    walk = np.cumsum(rng.normal(0, 1.0, (t.size, 200)), axis=0)
+    f = fit_harmonics(walk, t)
+    resid = walk - f.evaluate()
+    white = np.median(f.amplitude() / f.amplitude_sigma())
+    corrected = np.median(f.amplitude()
+                          / f.amplitude_sigma(inflation=effective_sample_factor(resid)))
+    assert white > 5          # the white-noise bar calls pure noise a detection
+    assert corrected < 2      # the corrected one does not
+
+
+def test_effective_sample_factor_needs_three_samples():
+    with pytest.raises(ValueError, match="three samples"):
+        effective_sample_factor(np.ones((2, 4)))

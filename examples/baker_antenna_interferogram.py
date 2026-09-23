@@ -106,8 +106,32 @@ def main():
           f"{len(epochs)} of them (stride {stride}) at {args.looks[0]} x "
           f"{args.looks[1]} looks")
 
+    # The DEM's phase has to come off BEFORE the looks are taken.  At a
+    # height ambiguity of tens of metres the topographic fringe turns several
+    # times across fifteen range samples, so multilooking the unflattened
+    # product averages the fringe away and returns a coherence near zero
+    # whatever the geometry is doing.  Flattening first is the difference
+    # between measuring the interferometer and measuring the multilook.
+    heading = scene_heading(scene, default=BAKERBEND1_HEADING)
+    geom_full = decimated_geom(upper, 1, heading)
+    n_az, n_rg = geom_full.shape
+    rows_full = np.arange(n_az)
+    cols_full = np.arange(n_rg)
+    h_full = target_heights(geom_full, dem, rows=rows_full, cols=cols_full)
+    slant_full = np.asarray(geom_full.slant_range(), float)[None, :]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        sin_full = np.clip((h_full - geom_full.alt0)
+                           / np.maximum(slant_full, 1.0), -1.0, 1.0)
+    unit_full = 2 * np.pi * args.baseline / upper.wavelength
+    candidates = {"one-way (k = 1)": 1.0, "two-way (k = 2)": 2.0,
+                  "half (k = 0.5)": 0.5}
+    print(f"flattening with the DEM at full resolution before multilooking, "
+          f"for k in {sorted(candidates.values())}")
+
     t0 = time.time()
     acc, coh, offsets = None, None, []
+    flat_acc = {k: None for k in candidates.values()}
+    flat_den = None
     for e in epochs:
         su = upper.read_slc(e)
         sl = lower.read_slc(e)
@@ -131,6 +155,18 @@ def main():
         z_e = z_e * np.exp(-1j * const)
         acc = z_e * g_e if acc is None else acc + z_e * g_e
         coh = g_e if coh is None else coh + g_e
+        # and the same product flattened by each candidate before looking
+        raw = a * np.conj(b)
+        den_f = np.sqrt(np.maximum(
+            multilook(np.abs(a) ** 2, args.looks)
+            * multilook(np.abs(b) ** 2, args.looks), 1e-30))
+        for kk in candidates.values():
+            phi = kk * unit_full * sin_full[:raw.shape[0], :raw.shape[1]]
+            zz = multilook(raw * np.exp(-1j * np.nan_to_num(phi)), args.looks)
+            # a coherence per epoch, bounded in [0, 1], then averaged: summing
+            # numerators and denominators across epochs is not a coherence
+            g_k = np.abs(zz) / den_f
+            flat_acc[kk] = g_k if flat_acc[kk] is None else flat_acc[kk] + g_k
     upper.close(); lower.close()
     with np.errstate(invalid="ignore", divide="ignore"):
         ifg = np.where(coh > 0, acc / np.maximum(coh, 1e-30), np.nan)
@@ -148,6 +184,20 @@ def main():
           f"the {len(epochs)} epochs and is removed")
     print(f"  after removing it the phase agrees across epochs at "
           f"{np.nanmedian(consistency):.3f} (1 is perfect)")
+
+    # the measurement that the unflattened coherence could not make
+    print(f"\ncoherence of the flattened product, multilooked after the DEM "
+          f"phase came off:")
+    flat_gamma = {}
+    for name, kk in candidates.items():
+        g_k = flat_acc[kk] / len(epochs)
+        flat_gamma[name] = g_k
+        print(f"  {name:16s} median {np.nanmedian(g_k):.3f}, "
+              f"p84 {np.nanpercentile(g_k, 84):.3f}")
+    unflat = np.nanmedian(gamma)
+    print(f"  unflattened, for comparison: {unflat:.3f}")
+    best_flat = max(flat_gamma, key=lambda n: np.nanmedian(flat_gamma[n]))
+    print(f"  the DEM's own geometry is {best_flat}")
 
     # ---- what the DEM predicts --------------------------------------------
     heading = scene_heading(scene, default=BAKERBEND1_HEADING)
@@ -185,8 +235,6 @@ def main():
     def resultant_at(k):
         return float(np.abs(np.mean(z * np.exp(-1j * k * unit * s))))
 
-    candidates = {"one-way (k = 1)": 1.0, "two-way (k = 2)": 2.0,
-                  "half (k = 0.5)": 0.5}
     scored = {name: resultant_at(k) for name, k in candidates.items()}
     best_name = max(scored, key=scored.get)
     k_hat = candidates[best_name]
@@ -295,6 +343,8 @@ def main():
              candidate_resultants=np.array([scored[n] for n in candidates]),
              candidate_k=np.array([candidates[n] for n in candidates]),
              registration=np.array(best[1:]), registration_resultant=best[0],
+             flattened_gamma=np.stack([flat_gamma[n] for n in candidates]),
+             flattened_k=np.array(list(candidates.values())),
              baseline=args.baseline, wavelength=wavelength,
              epochs=np.array(epochs), looks=np.array(args.looks))
     print(f"wrote {npz}")
