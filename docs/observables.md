@@ -196,6 +196,91 @@ tracking on faster ice than Baker's.  Multilooking the intensity first
 (`--looks`) raises the median correlation to 0.09 and makes the offsets
 noisier, so it is not the default.
 
+## Persistent scatterers in the far field
+
+`gpri_tools.psinterp` implements Chen, Zebker & Knight's PS-interpolation
+unwrapping and no Baker script had used it.  The place it belongs is the
+weak spot [`baker.md`](baker.md) documents: beyond 7 km, where 46 % of the
+ice sits against 308 of the 7,697 stable pixels, the rock-fitted screens are
+extrapolating.  `examples/baker_ps.py` selects scatterers by amplitude
+dispersion over the record, unwraps a long-baseline interferogram at them
+along a minimum spanning tree in **ground metres** (the GPRI's pixel spacing
+is anisotropic enough that a tree built in pixels picks the wrong
+neighbours), and interpolates back onto the grid.
+
+![persistent scatterers, 20170913](figures/37_ps_20170913_6h.png)
+
+On `20170913` at 3 × 15 looks, 40,000 pixels pass a dispersion of 0.25 —
+18 % of the grid, 3,185 of them on ice and 2,644 on bedrock — and their
+density rises with range rather than falling:
+
+| range (km) | 0–1 | 2–3 | 4–5 | 5–6 | 6–7 | 7–8 | 9–10 | 12–13 | 16–17 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| PS share | 1.7 % | 11.9 % | 17.1 % | 26.4 % | 28.7 % | 24.9 % | 19.1 % | 18.4 % | 19.1 % |
+| PS on ice | 0 | 0 | 23 | 800 | 615 | 999 | 54 | 0 | 0 |
+
+So the far field the screens cannot reach is not empty of usable targets:
+at 7–8 km, where the modelled stratification residual is 70 % of what it
+started as, there are 999 persistent scatterers on the ice itself.
+
+Unwrapping the 6 h interferogram at those targets moved 86 % of ice pixels
+by a whole cycle or more (up to five cycles) and 47 % of bedrock pixels (up
+to seven), with no unresolved targets and a suspect fraction — pixels whose
+residual came back near π, where the subtract-wrap-add step aliased — of
+8.7 % on ice and 4.7 % on bedrock.  That suspect map is the honest failure
+map, not a quality score.
+
+## Phase linking, and the quality number it brings
+
+`gpri_tools.covariance` and `gpri_tools.phaselink` had likewise never been
+run on this data.  `examples/baker_phaselink.py` builds the N × N sample
+coherence matrix per pixel and factors it for the per-epoch phases that
+explain every pair at once, rather than the chain's consecutive differences.
+
+The configuration decides the answer, and the script makes that visible with
+`--spread`:
+
+| mini-stack | temporal coherence, ice / rock | linked sd, ice | chain sd, ice | linked − chain |
+|---|---|---:|---:|---:|
+| 24 consecutive (48 min) | 0.999 / 0.995 | 4.07 mm | 4.01 mm | 1.40 mm |
+| 24 spread over 13.8 h | 0.038 / 0.048 | 4.98 mm | 27.70 mm | 28.12 mm |
+
+Linked consecutively the rank-one model is essentially exact and the series
+agrees with the chain to 1.4 mm; spread across the record, the pairs have
+decorrelated (the decorrelation section above says ice reaches γ = 0.5 in
+4.3 h on this campaign), the model fits nothing, and the "linked" series is
+flat where the chain has 27.7 mm of motion.
+
+What linking adds is `temporal_coherence`, a per-pixel number the chain
+cannot produce: on the consecutive mini-stack 96.3 % of ice pixels and
+61.1 % of held-out bedrock reach 0.6.  The chain cannot tell a pixel whose
+steps are mutually consistent from one whose steps merely integrate.
+
+## Velocity gradients
+
+The spatial derivative of the per-pixel rate is what a strain rate is made
+of.  `examples/baker_strain.py` fits a plane to the line-of-sight rate over
+a 200 m ground neighbourhood at every pixel and maps the gradient, taking
+the rates from `baker_harmonics.py`'s cache where one exists.
+
+![velocity gradients, 20170827](figures/39_strain_20170827.png)
+
+On `20170827`: the ice's rate is +13.7 m/yr (p16–p84 −7.3 to +41.6) and its
+gradient 64.1 m/yr per km (p16–p84 28.8 to 118.4); held-out bedrock, which
+does not move, gives +0.2 m/yr and a gradient of 37.9 m/yr per km (19.4 to
+68.3).  **The ice's gradient is 1.7 times the bedrock's**, and that ratio is
+what the map is worth: differentiating a rate differentiates its noise, and
+the bedrock row says how much of the ice's structure is that.  Across the
+five campaigns that carry a per-pixel rate the ratio runs 1.3, 1.7, 2.6, 3.1
+and 3.6 (`20170713_full`, `20170827`, `20180808`, `20190719`,
+`20170803_full`), so how much the gradient map is worth is a property of the
+campaign, not of the method.
+
+Two limits the script prints rather than hides: one look direction gives one
+component of a three-dimensional velocity field, so this is the gradient of
+the line-of-sight rate and not a strain-rate tensor; turning it into one
+needs a flow direction and a depth assumption this data cannot supply.
+
 ## Reproduce
 
 ```bash
@@ -216,4 +301,11 @@ for s in $CAMPAIGNS; do
 done
 # speckle tracking beside the phase, over a two-hour pair
 python examples/baker_tracking.py --scene 20170913 --hours 2 --rgi
+# persistent scatterers, and unwrapping a six-hour interferogram at them
+python examples/baker_ps.py --scene 20170913 --hours 6
+# phase linking a consecutive mini-stack, and the same epochs spread out
+python examples/baker_phaselink.py --scene 20170913 --epochs 24
+python examples/baker_phaselink.py --scene 20170913 --epochs 24 --spread even
+# the gradient of the per-pixel rate (needs baker_harmonics.py first)
+for s in $CAMPAIGNS; do python examples/baker_strain.py --scene $s --rgi; done
 ```

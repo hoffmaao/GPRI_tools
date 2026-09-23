@@ -220,6 +220,11 @@ for s in 20170713_full 20170803_full 20170827 20180808 20190719; do
 done
 python examples/baker_decorrelation.py --scene 20170913 --lags 1 2 3 30 60 90 180 360
 for s in $CAMPAIGNS 20180709; do python examples/baker_turbulence.py --scene $s --rgi; done
+for s in $CAMPAIGNS; do python examples/baker_antenna_interferogram.py --scene $s --epochs 16; done
+python examples/baker_tracking.py --scene 20170913 --hours 2 --rgi
+python examples/baker_ps.py --scene 20170913 --hours 6
+python examples/baker_phaselink.py --scene 20170913 --epochs 24
+for s in $CAMPAIGNS; do python examples/baker_strain.py --scene $s --rgi; done
 # the weather beside the radar (SNOTEL + ERA5, a week either side, cached), and
 # what the ice does with it: the stratification forward model, the lag, the ice
 # against temperature, and which pixels carry the waveform
