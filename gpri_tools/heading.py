@@ -68,32 +68,58 @@ class PolarTerrain:
         return np.hypot(self.ground_range[None, :], self.height - self.alt0)
 
 
-def _dem_sampler(dem, lat0, lon0, half_width_deg=0.25):
+def _dem_sampler(dem, lat0, lon0, half_width_deg=0.25, max_resolution=5.0):
     """``(sample(lat, lon) -> height, height_at_radar)`` from a raster DEM.
 
     Reads only a window around the radar; the window is clipped to the tile
     so its transform stays honest when the radar sits near a tile edge.
+
+    The raster may be geographic (a Copernicus tile, degrees) or projected
+    (an airborne lidar DEM in UTM metres): for a projected one the window and
+    every sample point are transformed into its CRS, and a raster finer than
+    ``max_resolution`` metres is read block-averaged to about that spacing,
+    which is still far finer than a radar cell and keeps a 1 m lidar mosaic
+    from being read whole.  Points the raster does not cover come back NaN.
     """
     import rasterio
-    from rasterio.windows import from_bounds
+    from rasterio.enums import Resampling
+    from rasterio.windows import Window, from_bounds
 
     d = rasterio.open(dem)
     bb = d.bounds
-    win = from_bounds(max(lon0 - half_width_deg, bb.left),
-                      max(lat0 - half_width_deg * 0.7, bb.bottom),
-                      min(lon0 + half_width_deg, bb.right),
-                      min(lat0 + half_width_deg * 0.7, bb.top), d.transform)
-    win = win.round_offsets().round_lengths()
-    z = d.read(1, window=win).astype(float)
-    nodata = d.nodata
-    if nodata is not None:
-        z[z == nodata] = np.nan
-    tr = d.window_transform(win)
+    projected = d.crs is not None and d.crs.is_projected
+    if projected:
+        from pyproj import Transformer
+        to = Transformer.from_crs("EPSG:4326", d.crs, always_xy=True)
+        lo = np.array([lon0 - half_width_deg, lon0 + half_width_deg])
+        la = np.array([lat0 - half_width_deg * 0.7, lat0 + half_width_deg * 0.7])
+        U, V = to.transform(*np.meshgrid(lo, la))
+        win = from_bounds(max(U.min(), bb.left), max(V.min(), bb.bottom),
+                          min(U.max(), bb.right), min(V.max(), bb.top), d.transform)
+    else:
+        win = from_bounds(max(lon0 - half_width_deg, bb.left),
+                          max(lat0 - half_width_deg * 0.7, bb.bottom),
+                          min(lon0 + half_width_deg, bb.right),
+                          min(lat0 + half_width_deg * 0.7, bb.top), d.transform)
+    win = win.round_offsets().round_lengths().intersection(Window(0, 0, d.width, d.height))
+    f = max(1, int(max_resolution // abs(d.res[0]))) if projected else 1
+    h, w = max(int(win.height // f), 1), max(int(win.width // f), 1)
+    # masked read: a float32 nodata such as -3.4e38 does not survive a cast to
+    # float64 unchanged, so it is never compared by value
+    z = d.read(1, window=win, out_shape=(h, w), masked=True,
+               resampling=Resampling.average if f > 1 else Resampling.nearest)
+    z = np.ma.filled(z.astype(float), np.nan)
+    tr = d.window_transform(win) * rasterio.Affine.scale(win.width / w, win.height / h)
 
     def sample(lat, lon):
-        col = (np.atleast_1d(np.asarray(lon, float)) - tr.c) / tr.a - 0.5
-        row = (np.atleast_1d(np.asarray(lat, float)) - tr.f) / tr.e - 0.5
-        return map_coordinates(z, [row, col], order=1, mode="nearest")
+        lat = np.atleast_1d(np.asarray(lat, float))
+        lon = np.atleast_1d(np.asarray(lon, float))
+        u, v = to.transform(lon, lat) if projected else (lon, lat)
+        col = (np.asarray(u) - tr.c) / tr.a - 0.5
+        row = (np.asarray(v) - tr.f) / tr.e - 0.5
+        out = map_coordinates(z, [row, col], order=1, mode="nearest")
+        outside = (row < -0.5) | (row > h - 0.5) | (col < -0.5) | (col > w - 0.5)
+        return np.where(outside & projected, np.nan, out)
 
     return sample, float(sample(lat0, lon0)[0])
 
