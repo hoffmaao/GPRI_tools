@@ -11,8 +11,11 @@ antennas**, solved for a whole campaign at once, and
 
 The scene is cut into 200 m ground cells of four kinds: the fit half of the
 stable ground, RGI ice (mean coherence ≥ 0.5), candidate reference ground,
-and the held-out half of the stable ground. Each antenna's series is reduced
-to one median per cell and epoch. Heights are the 2015 USGS lidar DEM
+and the held-out half of the stable ground. The stable ground is split into
+its two halves by whole cells, drawn at random, so no held-out cell shares a
+cell with fit rock. Each antenna's series is reduced to one median per cell
+and epoch; a cell with no valid pixel at any epoch of either antenna is
+dropped, and `--stage cells` prints how many. Heights are the 2015 USGS lidar DEM
 (1 m, flown 26 August–27 September 2015; `GPRI_DEM_LIDAR`), with the
 Copernicus 30 m DEM where the lidar has no coverage. At every epoch each value
 of the fit rock, the ice and the candidates is
@@ -32,6 +35,9 @@ everything else marginalised. The shape of the path prior (length scale,
 growth with range, shared noise) is chosen per campaign by marginal likelihood
 on the fit-half rock. The held-out rock never enters the solve. The path is
 predicted there afterwards, and the difference scores the model.
+
+The numbers in the tables below were computed with the stable ground split
+pixel by pixel; they are to be regenerated with the split by cell.
 
 ## Candidate reference ground
 
@@ -101,9 +107,14 @@ prior precision and the remainder share.
 ## Scores on held-out rock
 
 Anomaly RMS of the pixel-weighted mean series over the held-out cells (about
-each series' own secular line), and its 24 h amplitude, in mm. Each row
-compares three products on the same cells: the ladder (upper antenna), the
-joint inversion without candidates, and with them.
+each series' own secular line), and its 24 h amplitude, in mm. Only the
+held-out cells not used to calibrate the stationary spread are scored. Each
+row compares three products on the same cells: the ladder (run on each
+antenna, the two series averaged), the joint inversion without candidates,
+and with them. Both average the two antennas.
+
+The table below is from the earlier setup (all held-out cells, the ladder on
+the upper antenna) and is to be regenerated.
 
 | campaign | above 2500 m, RMS | above 2500 m, 24 h | below 2300 m, RMS | below 2300 m, 24 h |
 |---|---|---|---|---|

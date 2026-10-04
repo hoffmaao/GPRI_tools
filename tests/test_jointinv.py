@@ -72,6 +72,37 @@ def test_cell_series_is_relative_to_the_first_epoch():
     np.testing.assert_allclose(out[2], [16.0, 16.0])
 
 
+def test_a_cell_missing_at_an_epoch_is_dropped_not_zero_filled():
+    s = np.arange(24, dtype=float).reshape(3, 2, 4)
+    s[0, 0, :2] = np.nan                         # cell 0 has no pixel at epoch 0
+    s[1, 1, :] = np.nan                          # cell 1 has none at epoch 1
+    groups = [np.array([0, 1]), np.array([4, 5, 6, 7]), np.array([2, 3])]
+    out = J.cell_series(s, groups)
+    assert np.isnan(out[:, 0]).all()
+    assert np.isnan(out[1, 1]) and np.isfinite(out[[0, 2], 1]).all()
+    np.testing.assert_array_equal(J.complete_cells(out, out), [False, False, True])
+    x = np.arange(8.0)
+    cs = J.CellSet.build(groups, np.array([10, 11, 12]), x, x, x, x, out, out)
+    np.testing.assert_array_equal(cs.key, [12])
+    assert cs.yu.shape == (3, 1) and np.isfinite(cs.yu).all()
+    np.testing.assert_allclose(cs.xy, [[2.5, 2.5]])
+
+
+def test_split_cells_assigns_whole_cells():
+    rng = np.random.default_rng(3)
+    x, y = rng.uniform(0, 2000, 4000), rng.uniform(0, 2000, 4000)
+    mask = rng.uniform(size=4000) < 0.8
+    a, b = J.split_cells(mask, x, y, size=200.0, seed=0)
+    assert not (a & b).any()
+    np.testing.assert_array_equal(a | b, mask)
+    _, ka = J.group_cells(a, x, y, 200.0)
+    _, kb = J.group_cells(b, x, y, 200.0)
+    assert not np.intersect1d(ka, kb).size
+    assert abs(ka.size - kb.size) <= 1
+    a2, _ = J.split_cells(mask, x, y, size=200.0, seed=0)
+    np.testing.assert_array_equal(a, a2)
+
+
 def test_antenna_noise_reads_the_per_pixel_level_and_each_cell():
     rng = np.random.default_rng(1)
     nt, n = 400, 60

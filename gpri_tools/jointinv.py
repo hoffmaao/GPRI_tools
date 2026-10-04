@@ -41,9 +41,10 @@ difference scores the whole model.
 
 Candidates are coherent ground the reference rules leave out (inside the
 outline buffer, or below the coherence threshold).  Whether one is stationary
-is decided by the data: its motion terms are compared with what held-out rock
-returns for the same terms after its predicted path (:func:`motion_terms`,
-:func:`spike_by_range`), in a two-component mixture whose evidence is summed
+is decided by the data: its motion terms are compared with a stationary
+spread, its own formal variance from a free solve scaled by how far that
+variance under-states the motion terms of held-out rock
+(:func:`calibrated_spike`), in a two-component mixture whose evidence is summed
 over every campaign that sees the location (:func:`shared_stationarity`).  The
 posterior probability ``p`` then sets a prior precision ``p / spike`` on the
 candidate's rate and harmonic and a remainder variance ``(1 - p) a2`` — a
@@ -65,8 +66,8 @@ from scipy.linalg import cho_factor, cho_solve
 from scipy.spatial.distance import cdist
 
 __all__ = [
-    "CellSet", "group_cells", "cell_medians", "cell_series", "antenna_noise",
-    "shared_noise", "trend_design", "exponential_covariance", "PathPrior", "fit_path_prior",
+    "CellSet", "group_cells", "split_cells", "cell_medians", "cell_series", "complete_cells",
+    "antenna_noise", "shared_noise", "trend_design", "exponential_covariance", "PathPrior", "fit_path_prior",
     "Campaign", "JointResult", "solve", "motion_terms", "spike_by_range", "calibrated_spike",
     "shared_stationarity", "stationarity_probability", "motion_variance", "inject_shared", "CELL_ORIGIN", "DIURNAL",
 ]
@@ -79,6 +80,12 @@ DIURNAL = 1.0             # days
 
 
 # ----------------------------------------------------------------- the cells
+def _cell_keys(x, y, size, origin):
+    ix = np.floor((np.asarray(x) - origin) / size).astype(np.int64)
+    iy = np.floor((np.asarray(y) - origin) / size).astype(np.int64)
+    return ix * 1_000_000 + iy
+
+
 def group_cells(mask, x, y, size=200.0, min_pixels=1, origin=CELL_ORIGIN):
     """Pixels of ``mask`` grouped into ``size``-metre ground cells.
 
@@ -88,15 +95,31 @@ def group_cells(mask, x, y, size=200.0, min_pixels=1, origin=CELL_ORIGIN):
     fewer than ``min_pixels`` pixels are dropped.
     """
     m = np.asarray(mask, bool)
-    ix = np.floor((np.asarray(x)[m] - origin) / size).astype(np.int64)
-    iy = np.floor((np.asarray(y)[m] - origin) / size).astype(np.int64)
-    key = ix * 1_000_000 + iy
+    key = _cell_keys(np.asarray(x)[m], np.asarray(y)[m], size, origin)
     pix = np.flatnonzero(m.ravel())
     o = np.argsort(key, kind="stable")
     keys, start, count = np.unique(key[o], return_index=True, return_counts=True)
     keep = count >= min_pixels
     groups = [pix[o[s:s + c]] for s, c, k in zip(start, count, keep) if k]
     return groups, keys[keep]
+
+
+def split_cells(mask, x, y, size=200.0, seed=0, origin=CELL_ORIGIN):
+    """``mask`` split in two halves of whole ``size``-metre cells, at random.
+
+    The cells are those of :func:`group_cells`; each is assigned entire to
+    the first or the second half (about half the cells each, ``seed`` fixes
+    the draw), so no cell of one half shares lattice ground with the other.
+    Returns two boolean masks of the shape of ``mask``.
+    """
+    m = np.asarray(mask, bool)
+    key = np.full(m.shape, -1, np.int64)
+    key[m] = _cell_keys(np.asarray(x)[m], np.asarray(y)[m], size, origin)
+    cells = np.unique(key[m])
+    rng = np.random.default_rng(seed)
+    first = rng.permutation(cells)[: cells.size // 2]
+    a = m & np.isin(key, first)
+    return a, m & ~a
 
 
 def cell_medians(frame, groups):
@@ -109,12 +132,19 @@ def cell_series(series, groups):
     """``(n_epochs, n_groups)`` medians of a ``(n_epochs, ...)`` series, relative to epoch 0.
 
     ``series`` may be a memory-mapped array; it is read one epoch at a time.
+    A cell with no valid pixel at an epoch is NaN there (at every epoch, if
+    that is epoch 0); :func:`complete_cells` finds the cells without a gap.
     """
     out = np.empty((len(series), len(groups)))
     for k in range(len(series)):
         out[k] = cell_medians(series[k], groups)
     out -= out[0]
-    return np.nan_to_num(out)
+    return out
+
+
+def complete_cells(*series):
+    """Cells whose median is finite at every epoch of every ``(n_epochs, n)`` series."""
+    return np.logical_and.reduce([np.isfinite(np.asarray(s, float)).all(axis=0) for s in series])
 
 
 @dataclass
@@ -134,6 +164,12 @@ class CellSet:
 
     @classmethod
     def build(cls, groups, keys, x, y, r, z, yu, yl):
+        """Cells from pixel groups; a cell missing at any epoch of either antenna is dropped."""
+        keep = complete_cells(yu, yl)
+        if not keep.all():
+            sel = np.flatnonzero(keep)
+            groups = [groups[i] for i in sel]
+            keys, yu, yl = np.asarray(keys)[sel], np.asarray(yu)[:, sel], np.asarray(yl)[:, sel]
         x, y, r, z = (np.asarray(v).ravel() for v in (x, y, r, z))
         return cls(key=np.asarray(keys, np.int64),
                    xy=np.array([[x[g].mean(), y[g].mean()] for g in groups]).reshape(-1, 2),
@@ -368,7 +404,7 @@ def solve(camp, prior, ice_length=600.0, terms=("1", "r", "r2", "z"),
         candidate free, with its own remainder).
     cand_spike : (n_cand, q - 1) array, optional
         Variance of each motion term for stationary ground (from
-        :func:`spike_by_range`); needed when ``cand_p`` is given.
+        :func:`calibrated_spike`); needed when ``cand_p`` is given.
     noise : ``(alpha, rho)``, optional
         From :func:`antenna_noise` over fit + ice + candidates (in that order);
         computed here if not given.

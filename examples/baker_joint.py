@@ -23,9 +23,11 @@ stationary candidate as rock.
 Stages, each cached under ``$GPRI_WORK_ROOT/<scene>/``:
 
 ``cells``   cell-median series of both antennas from the pair caches (and,
-            for scoring, the ladder's upper-antenna series on the same held
+            for scoring, the ladder run on each antenna, on the same held
             cells), heights from the DEM (``--dem``; the 2015 lidar by default
-            when ``GPRI_DEM_LIDAR`` is set)
+            when ``GPRI_DEM_LIDAR`` is set); the stable ground is split into
+            fit and held-out halves by whole cells; rebuilt when the cache
+            was made with other settings
 ``A``       the path prior by marginal likelihood on the rock, and the
             calibration solve that measures each candidate's motion terms
 ``EM``      stationarity of every candidate location, all campaigns at once
@@ -48,7 +50,7 @@ import matplotlib.dates as mdates                                     # noqa: E4
 import matplotlib.pyplot as plt                                       # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from baker_aps import SCENES, integrate, load, split_mask             # noqa: E402
+from baker_aps import SCENES, integrate, load                         # noqa: E402
 from baker_north_side import decimated_par                            # noqa: E402
 from gpri_tools import jointinv as J                                  # noqa: E402
 from gpri_tools.aps import epoch_screen_correction, turbulence_screen  # noqa: E402
@@ -61,7 +63,7 @@ from gpri_tools.timeseries import los_displacement                    # noqa: E4
 CAMPAIGNS = ["20170713_full", "20170803_full", "20170827", "20170913", "20180709",
              "20180808", "20190719"]
 UTC_OFFSET = -7.0
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 
 def root_of(scene):
@@ -70,6 +72,26 @@ def root_of(scene):
 
 def cells_path(scene, dec):
     return root_of(scene) / f"joint_cells_dec{dec}.npz"
+
+
+def cache_settings(args):
+    """What the cell cache depends on besides the scene and the decimation."""
+    return {"cache_version": CACHE_VERSION, "size": float(args.size), "dem": str(args.dem),
+            "fallback_dem": str(args.fallback_dem), "stable_coherence": float(args.stable_coherence),
+            "ice_coherence": float(args.ice_coherence), "cand_coherence": float(args.cand_coherence)}
+
+
+def cache_is_current(scene, args):
+    p = cells_path(scene, args.decimate)
+    if not p.exists():
+        return False
+    with np.load(p, allow_pickle=False) as c:
+        return all(k in c.files and c[k].item() == v for k, v in cache_settings(args).items())
+
+
+def calibration_half(n):
+    """The held cells that calibrate the stationary spread; the rest score and test."""
+    return (np.arange(n) % 2) == 0
 
 
 # ------------------------------------------------------------------ cells
@@ -94,7 +116,7 @@ def build_cells(scene_name, args):
         z = np.where(np.isfinite(z), z, target_heights(geom, args.fallback_dem))
     rr = np.broadcast_to(np.asarray(r, float), x.shape)
     ok = np.isfinite(z)
-    fit, held = split_mask(stable)
+    fit, held = J.split_cells(stable & ok, x, y, args.size)
     ice = (mean_cc >= args.ice_coherence) & on_glacier & ok
     cand = ~on_glacier & ~stable & ok & (mean_cc >= args.cand_coherence)
     classes = {"fit": (fit & ok, 3), "ice": (ice, 8), "cand": (cand, 3), "held": (held & ok, 3)}
@@ -109,33 +131,45 @@ def build_cells(scene_name, args):
         d *= 1000.0                                                     # mm
         return d, np.asarray(times, float)
 
+    def ladder_of(d):
+        dl, _ = epoch_screen_correction(d / 1000.0, fit, r, model="linear", weights=mean_cc)
+        for k in range(dl.shape[0]):
+            scr, _ = turbulence_screen(dl[k], fit, sigma=(5.0, 25.0), weights=mean_cc, wrapped=False)
+            dl[k] -= scr
+        dl *= 1000.0
+        return {k: J.cell_series(dl, groups[k][0]) for k in ("held", "ice")}
+
+    # the ladder, on the same cells, for the scores: run on each antenna and
+    # averaged, as the joint inversion's residual averages both
     out = {}
     d, times = series_of("upper")
     up = {k: J.cell_series(d, g) for k, (g, _) in groups.items()}
-    # the ladder, on the same cells, for the scores (upper antenna, as the
-    # products elsewhere in this repository)
-    dl, _ = epoch_screen_correction(d / 1000.0, fit, r, model="linear", weights=mean_cc)
-    for k in range(dl.shape[0]):
-        scr, _ = turbulence_screen(dl[k], fit, sigma=(5.0, 25.0), weights=mean_cc, wrapped=False)
-        dl[k] -= scr
-    dl *= 1000.0
-    for k in ("held", "ice"):
-        out[f"ladder_{k}"] = J.cell_series(dl, groups[k][0])
-    del d, dl, phase
+    lad_u = ladder_of(d)
+    del d, phase
     d, times_l = series_of("lower")
     if times_l.size != times.size:
         sys.exit(f"{scene_name}: the antennas have {times.size} and {times_l.size} epochs")
     lw = {k: J.cell_series(d, g) for k, (g, _) in groups.items()}
+    lad_l = ladder_of(d)
     del d
+    dropped = {}
     for k, (g, keys) in groups.items():
-        cs = J.CellSet.build(g, keys, x, y, rr, z, up[k], lw[k])
+        extra = (lad_u[k], lad_l[k]) if k in lad_u else ()
+        keep = np.flatnonzero(J.complete_cells(up[k], lw[k], *extra))
+        dropped[k] = len(g) - keep.size
+        g = [g[i] for i in keep]
+        cs = J.CellSet.build(g, keys[keep], x, y, rr, z, up[k][:, keep], lw[k][:, keep])
         out.update(cs.as_dict(k))
+        groups[k] = (g, keys[keep])
+        if extra:
+            out[f"ladder_{k}"] = 0.5 * (lad_u[k][:, keep] + lad_l[k][:, keep])
     e0 = net.epochs[0]
     np.savez_compressed(cells_path(scene_name, dec), times=times,
                         epoch0=np.datetime64(e0).astype("datetime64[s]"),
                         origin=e0.hour + e0.minute / 60.0 + e0.second / 3600.0,
-                        dem=str(args.dem), size=args.size, cache_version=CACHE_VERSION, **out)
-    print(f"{scene_name}: " + ", ".join(f"{k} {len(g)} cells" for k, (g, _) in groups.items())
+                        **cache_settings(args), **out)
+    print(f"{scene_name}: " + ", ".join(f"{k} {len(g)} cells ({dropped[k]} dropped, missing at an epoch)"
+                                        for k, (g, _) in groups.items())
           + f" [{time.time() - t0:.0f} s]", flush=True)
 
 
@@ -178,7 +212,7 @@ def stage_a(scene_name, args):
     # half the held-out rock calibrates the stationary spread; the other half,
     # and the ice, are put through the classification afterwards as ground of
     # known state
-    calib = (np.arange(camp.held.n) % 2) == 0
+    calib = calibration_half(camp.held.n)
     spike, kappa, cal = J.calibrated_spike(camp, prior, calibrate=calib, **kw)
     var = J.motion_variance(cal)
     ni, nc = camp.ice.n, camp.cand.n
@@ -260,7 +294,9 @@ def stage_b(scene_name, args):
     t, h, full = camp.t, camp.held, camp.spans_a_day
     ladder = c["ladder_held"]
     rows = []
-    for lab, sel in (("above 2500 m", h.z >= 2500), ("below 2300 m", h.z < 2300)):
+    # scored only on the held cells the stationary spread was not calibrated on
+    test = ~calibration_half(h.n)
+    for lab, sel in (("above 2500 m", test & (h.z >= 2500)), ("below 2300 m", test & (h.z < 2300))):
         if not sel.any():
             continue
         lad = score(t, ladder[:, sel], h.n_px[sel], full, camp.origin_hour)
@@ -387,7 +423,7 @@ def main():
     args = ap.parse_args()
     if args.stage in ("cells", "all"):
         for s in args.scenes:
-            if args.stage == "cells" or not cells_path(s, args.decimate).exists():
+            if args.stage == "cells" or not cache_is_current(s, args):
                 build_cells(s, args)
     if args.stage in ("A", "all"):
         for s in args.scenes:
