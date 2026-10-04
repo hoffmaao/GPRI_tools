@@ -3,7 +3,24 @@
 The correction ladder (:mod:`gpri_tools.aps`) and the temporal path delay
 (:mod:`gpri_tools.pathdelay`) are separate steps, each fitted and then
 subtracted.  This module replaces them with a single linear-Gaussian model of
-the uncorrected, integrated series, solved once for a campaign.
+the uncorrected, integrated series of both receive antennas, solved once for a
+campaign.  Two calls take a set of campaigns from arrays to results::
+
+    from gpri_tools import jointinv as J
+
+    camps = {name: J.build_campaign(t, upper, lower, x, y, r, z,
+                                    fit=fit, ice=ice, held=held, cand=cand)
+             for name, (t, upper, lower, ...) in data.items()}
+    inv = J.invert(camps)              # every campaign, stationarity shared
+    inv.save("joint/")                 # J.Inversion.load("joint/") reads it back
+    amp, sigma, peak = inv.results[name].harmonic(camps[name].origin_hour)
+
+``upper`` and ``lower`` are each antenna's integrated LOS series in mm,
+``(n_epochs, n_az, n_rg)`` (a memory map is fine), and the masks are boolean
+images: ``fit`` and ``held`` the two halves of the stable ground, ``ice`` the
+ice, ``cand`` optional candidate reference ground.  :mod:`gpri_tools.plot` draws
+the results (:func:`gpri_tools.plot.joint_harmonic_map`,
+:func:`gpri_tools.plot.joint_elevation_time`).
 
 The data are cell medians: the scene is cut into ground cells (200 m by
 default, :func:`group_cells`) of four kinds — fit-half rock, ice, candidate
@@ -41,10 +58,10 @@ difference scores the whole model.
 
 Candidates are coherent ground the reference rules leave out (inside the
 outline buffer, or below the coherence threshold).  Whether one is stationary
-is decided by the data: its motion terms are compared with a stationary
-spread, its own formal variance from a free solve scaled by how far that
-variance under-states the motion terms of held-out rock
-(:func:`calibrated_spike`), in a two-component mixture whose evidence is summed
+is decided by the data: its motion terms are compared with what held-out rock
+would return for the same terms, measured by entering held-out rock as free
+candidates in a calibration solve (:func:`calibrated_spike`), in a
+two-component mixture whose evidence is summed
 over every campaign that sees the location (:func:`shared_stationarity`).  The
 posterior probability ``p`` then sets a prior precision ``p / spike`` on the
 candidate's rate and harmonic and a remainder variance ``(1 - p) a2`` — a
@@ -60,16 +77,21 @@ informative test is the opposite one, a signal shared by rock and ice, which
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 from scipy.linalg import cho_factor, cho_solve
 from scipy.spatial.distance import cdist
 
 __all__ = [
-    "CellSet", "group_cells", "split_cells", "cell_medians", "cell_series", "complete_cells",
-    "antenna_noise", "shared_noise", "trend_design", "exponential_covariance", "PathPrior", "fit_path_prior",
-    "Campaign", "JointResult", "solve", "motion_terms", "spike_by_range", "calibrated_spike",
-    "shared_stationarity", "stationarity_probability", "motion_variance", "inject_shared", "CELL_ORIGIN", "DIURNAL",
+    # the two calls most users need
+    "build_campaign", "invert", "Inversion",
+    # the pieces they are made of
+    "Campaign", "CellSet", "JointResult", "PathPrior", "group_cells", "split_cells",
+    "cell_series", "complete_cells", "calibration_mask",
+    "antenna_noise", "shared_noise", "fit_path_prior", "solve", "calibrated_spike",
+    "motion_variance", "shared_stationarity", "stationarity_probability",
+    "inject_shared", "trend_design", "exponential_covariance", "CELL_ORIGIN", "DIURNAL",
 ]
 
 #: Lower-left corner of the cell lattice in the radar's local map frame, m.
@@ -107,22 +129,27 @@ def group_cells(mask, x, y, size=200.0, min_pixels=1, origin=CELL_ORIGIN):
 def split_cells(mask, x, y, size=200.0, seed=0, origin=CELL_ORIGIN):
     """``mask`` split in two halves of whole ``size``-metre cells, at random.
 
-    The cells are those of :func:`group_cells`; each is assigned entire to
-    the first or the second half (about half the cells each, ``seed`` fixes
-    the draw), so no cell of one half shares lattice ground with the other.
-    Returns two boolean masks of the shape of ``mask``.
+    Each cell of :func:`group_cells` goes entire to one half (about half the
+    cells each; ``seed`` fixes the draw), so no cell of one half shares
+    lattice ground with the other — the split for fitting on one half of the
+    stable ground and scoring on the other.  Returns two boolean masks.
     """
     m = np.asarray(mask, bool)
     key = np.full(m.shape, -1, np.int64)
     key[m] = _cell_keys(np.asarray(x)[m], np.asarray(y)[m], size, origin)
     cells = np.unique(key[m])
-    rng = np.random.default_rng(seed)
-    first = rng.permutation(cells)[: cells.size // 2]
+    first = np.random.default_rng(seed).permutation(cells)[: cells.size // 2]
     a = m & np.isin(key, first)
     return a, m & ~a
 
 
-def cell_medians(frame, groups):
+def calibration_mask(n, every=2):
+    """Which of ``n`` held cells calibrate the stationary spread in :func:`invert`;
+    the others are kept back to test it and to score the solve."""
+    return np.arange(n) % every == 0
+
+
+def _cell_medians(frame, groups):
     """The median of one image over each group (NaN-aware)."""
     flat = np.asarray(frame).ravel()
     return np.array([np.nanmedian(flat[g]) if g.size else np.nan for g in groups])
@@ -137,7 +164,7 @@ def cell_series(series, groups):
     """
     out = np.empty((len(series), len(groups)))
     for k in range(len(series)):
-        out[k] = cell_medians(series[k], groups)
+        out[k] = _cell_medians(series[k], groups)
     out -= out[0]
     return out
 
@@ -164,12 +191,11 @@ class CellSet:
 
     @classmethod
     def build(cls, groups, keys, x, y, r, z, yu, yl):
-        """Cells from pixel groups; a cell missing at any epoch of either antenna is dropped."""
-        keep = complete_cells(yu, yl)
-        if not keep.all():
-            sel = np.flatnonzero(keep)
-            groups = [groups[i] for i in sel]
-            keys, yu, yl = np.asarray(keys)[sel], np.asarray(yu)[:, sel], np.asarray(yl)[:, sel]
+        """Cells from pixel groups; a cell missing at any epoch of either antenna is
+        dropped, never zero-filled."""
+        keep = np.flatnonzero(complete_cells(yu, yl))
+        groups = [groups[i] for i in keep]
+        keys, yu, yl = np.asarray(keys)[keep], np.asarray(yu)[:, keep], np.asarray(yl)[:, keep]
         x, y, r, z = (np.asarray(v).ravel() for v in (x, y, r, z))
         return cls(key=np.asarray(keys, np.int64),
                    xy=np.array([[x[g].mean(), y[g].mean()] for g in groups]).reshape(-1, 2),
@@ -177,6 +203,11 @@ class CellSet:
                    z=np.array([np.nanmedian(z[g]) for g in groups]),
                    n_px=np.array([g.size for g in groups], float),
                    yu=np.asarray(yu, float), yl=np.asarray(yl, float))
+
+    @classmethod
+    def empty(cls, n_epochs):
+        return cls(np.zeros(0, np.int64), np.zeros((0, 2)), np.zeros(0), np.zeros(0),
+                   np.zeros(0), np.zeros((n_epochs, 0)), np.zeros((n_epochs, 0)))
 
     def subset(self, sel):
         sel = np.asarray(sel)
@@ -337,6 +368,23 @@ class Campaign:
     def spans_a_day(self):
         return float(self.t[-1] - self.t[0]) >= 0.98 * DIURNAL
 
+    def save(self, path, **extra):
+        """Write to one ``.npz``; ``extra`` arrays (an epoch clock, a baseline) go beside."""
+        out = {"t": self.t, "origin_hour": self.origin_hour}
+        for name in ("fit", "ice", "cand", "held"):
+            out.update(getattr(self, name).as_dict(name))
+        np.savez_compressed(path, **out, **extra)
+
+    @classmethod
+    def load(cls, path):
+        """``(campaign, extra)`` from :meth:`save`'s file."""
+        d = dict(np.load(path, allow_pickle=False))
+        camp = cls(d["t"], *(CellSet.from_dict(d, n) for n in ("fit", "ice", "cand", "held")),
+                   float(d["origin_hour"]))
+        own = {"t", "origin_hour"} | {f"{n}_{k}" for n in ("fit", "ice", "cand", "held")
+                                      for k in ("key", "xy", "r", "z", "n_px", "yu", "yl")}
+        return camp, {k: v for k, v in d.items() if k not in own}
+
 
 @dataclass
 class JointResult:
@@ -366,6 +414,21 @@ class JointResult:
         per = self.basis[:, 2:] @ self.ice_theta[2:] if q > 2 else 0.0
         return per + self.ice_remainder
 
+    _ARRAYS = ("theta", "cov", "held_prediction", "held_residual", "ice_remainder", "basis",
+               "path_scale", "ice_scale")
+
+    def save(self, path):
+        np.savez_compressed(path, n_ice=self.n_ice, prior=np.array(
+            [self.prior.length, self.prior.range_growth, self.prior.common, self.prior.r0]),
+            **{k: getattr(self, k) for k in self._ARRAYS})
+
+    @classmethod
+    def load(cls, path):
+        d = np.load(path)
+        L, g, c, r0 = d["prior"]
+        return cls(n_ice=int(d["n_ice"]), prior=PathPrior(L, g, c, r0),
+                   **{k: d[k] for k in cls._ARRAYS})
+
     def harmonic(self, origin_hour=0.0, cells="ice"):
         """24 h amplitude (mm), its formal sigma, and the UTC hour of peak."""
         th = self.ice_theta if cells == "ice" else self.cand_theta
@@ -378,6 +441,35 @@ class JointResult:
         sigma = np.sqrt(0.5 * (var[2] + var[3]))
         peak = (origin_hour + np.arctan2(th[3], th[2]) / (2 * np.pi) * 24.0) % 24.0
         return amp, sigma, peak
+
+
+def build_campaign(t, upper, lower, x, y, r, z, fit, ice, held, cand=None,
+                   size=200.0, min_pixels=(3, 8, 3, 3), origin_hour=0.0):
+    """A :class:`Campaign` from both antennas' series and the four masks.
+
+    ``upper`` and ``lower`` are the integrated LOS series in mm, ``(n_epochs,
+    ...)`` images (memory maps are read one epoch at a time); ``x, y`` the
+    pixels' map coordinates in metres in a frame shared by every campaign of
+    one tripod position; ``r`` slant range and ``z`` height per pixel (a 1-D
+    range is broadcast).  ``fit``, ``ice``, ``held`` and ``cand`` are boolean
+    images; pixels with no height are left out.  ``min_pixels`` is the
+    smallest cell kept, per class in that order.  ``t`` is in days from the
+    first epoch and ``origin_hour`` is the UTC hour of ``t = 0``.
+    """
+    x, y = np.asarray(x, float), np.asarray(y, float)
+    r = np.broadcast_to(np.asarray(r, float), x.shape)
+    z = np.asarray(z, float)
+    ok = np.isfinite(z)
+    t = np.asarray(t, float)
+    sets = []
+    for mask, nmin in zip((fit, ice, cand, held), min_pixels):
+        if mask is None:
+            sets.append(CellSet.empty(t.size))
+            continue
+        groups, keys = group_cells(np.asarray(mask, bool) & ok, x, y, size, nmin)
+        sets.append(CellSet.build(groups, keys, x, y, r, z,
+                                  cell_series(upper, groups), cell_series(lower, groups)))
+    return Campaign(t, sets[0], sets[1], sets[2], sets[3], float(origin_hour))
 
 
 def _basis(t, harmonic):
@@ -511,35 +603,6 @@ def solve(camp, prior, ice_length=600.0, terms=("1", "r", "r2", "z"),
 
 
 # ------------------------------------------------------- deciding stationarity
-def motion_terms(basis, series):
-    """Least-squares rate (and 24 h cos, sin) of each column of ``series``."""
-    return np.linalg.lstsq(np.asarray(basis, float), np.asarray(series, float), rcond=None)[0][1:]
-
-
-def spike_by_range(held_terms, held_r, cand_r, edges=(0.0, 6500.0, 7500.0, np.inf), min_cells=4):
-    """Per-candidate variance of each motion term on stationary ground.
-
-    ``held_terms`` (q - 1, n_held) are the held-out rock's motion terms after
-    its predicted path; their variance is taken in slant-range bins and
-    assigned to each candidate by its range.  A bin with fewer than
-    ``min_cells`` held cells uses the ``min_cells`` held cells nearest to it
-    in range instead.
-    """
-    edges = np.asarray(edges, float)
-    held_r = np.asarray(held_r, float)
-    hb = np.digitize(held_r, edges) - 1
-    var = np.zeros((edges.size - 1, held_terms.shape[0]))
-    for b in range(edges.size - 1):
-        sel = hb == b
-        if sel.sum() < min_cells:
-            gap = np.maximum(edges[b] - held_r, 0) + np.maximum(held_r - edges[b + 1], 0)
-            sel = np.zeros(held_r.size, bool)
-            sel[np.argsort(gap, kind="stable")[:min(min_cells, held_r.size)]] = True
-        var[b] = np.var(held_terms[:, sel], axis=1) + 1e-6
-    cb = np.clip(np.digitize(cand_r, edges) - 1, 0, edges.size - 2)
-    return var[cb], var
-
-
 def motion_variance(result):
     """Formal variance of every cell's motion terms (rate[, cos, sin]): (q - 1, n_ice + n_cand)."""
     q, n = result.theta.shape
@@ -635,6 +698,137 @@ def stationarity_probability(observations, share, slab):
         rw = np.array([index[int(x)] for x in k], int)
         np.add.at(llr, rw, _diag_gauss_logpdf(th, sp) - _diag_gauss_logpdf(th, sp + np.asarray(T)[:, None]))
     return keys, 1.0 / (1.0 + np.exp(-np.clip(np.log(share / (1 - share)) + llr, -50, 50)))
+
+
+# ------------------------------------------------------------- everything
+def _first_pass(job):
+    """Per campaign: noise, path prior, and the calibration solve."""
+    name, camp, calibrate_every, shared, ice_length = job
+    cl = (camp.fit, camp.ice, camp.cand)
+    yu = np.hstack([c.yu for c in cl])
+    yl = np.hstack([c.yl for c in cl])
+    n_px = np.concatenate([c.n_px for c in cl])
+    nf, ni, nc = camp.fit.n, camp.ice.n, camp.cand.n
+    alpha, rho = antenna_noise(yu, yl, n_px, reference=np.arange(nf + ni))
+    sh = shared_noise(cl) if shared == "cell" else None
+    prior = fit_path_prior(camp.fit, alpha, rho[:nf])
+    kw = {"ice_length": ice_length}
+    if sh is not None:
+        # the calibration solve stacks the held cells after the candidates;
+        # they take the fit rock's median levels
+        held = np.ones(camp.held.n)
+        kw.update(noise=(alpha, np.concatenate([rho, held * np.median(rho[:nf])])),
+                  shared=np.concatenate([sh, held * np.median(sh[:nf])]))
+    calib = calibration_mask(camp.held.n, calibrate_every)
+    spike, kappa, cal = calibrated_spike(camp, prior, calibrate=calib, **kw)
+    var = motion_variance(cal)
+    test = ~calib
+    observed = {
+        "cand": (camp.cand.key, cal.cand_theta[1:, :nc], spike),
+        "held": (camp.held.key[test], cal.cand_theta[1:, nc:][:, test],
+                 kappa[None] * var[:, ni + nc:][:, test].T),
+        "ice": (camp.ice.key, cal.ice_theta[1:], kappa[None] * var[:, :ni].T),
+    }
+    return name, prior, kappa, observed, (alpha, rho), sh
+
+
+def _final_pass(job):
+    """Per campaign: the solve with candidates weighted by p, and one without them."""
+    name, camp, prior, p, spike, noise, sh, ice_length, baseline = job
+    res = solve(camp, prior, ice_length=ice_length, cand_p=p, cand_spike=spike,
+                noise=noise, shared=sh)
+    base = None
+    if baseline:
+        nfi = camp.fit.n + camp.ice.n
+        base = solve(Campaign(camp.t, camp.fit, camp.ice, CellSet.empty(camp.t.size),
+                              camp.held, camp.origin_hour), prior, ice_length=ice_length,
+                     noise=(noise[0], noise[1][:nfi]), shared=None if sh is None else sh[:nfi])
+    return name, res, base
+
+
+@dataclass
+class Inversion:
+    """What :func:`invert` returns, campaign by campaign."""
+    results: dict                    # name -> JointResult with candidates
+    baseline: dict                   # name -> JointResult without them (or None)
+    priors: dict                     # name -> PathPrior
+    kappa: dict                      # name -> calibration of the stationary spread
+    keys: np.ndarray                 # candidate locations
+    p: np.ndarray                    # probability each is stationary
+    share: float                     # stationary share of the candidates
+    validation: dict                 # "held" / "ice" -> (keys, p) for ground of known state
+
+    def save(self, directory):
+        d = Path(directory)
+        d.mkdir(parents=True, exist_ok=True)
+        for name, res in self.results.items():
+            res.save(d / f"{name}.npz")
+            if self.baseline.get(name) is not None:
+                self.baseline[name].save(d / f"{name}_baseline.npz")
+        np.savez(d / "stationarity.npz", keys=self.keys, p=self.p, share=self.share,
+                 names=np.array(list(self.results)),
+                 kappa=np.array([np.pad(self.kappa[n], (0, 3 - len(self.kappa[n])),
+                                        constant_values=np.nan) for n in self.results]),
+                 **{f"validation_{k}_{i}": v for k, kv in self.validation.items()
+                    for i, v in zip(("keys", "p"), kv)})
+
+    @classmethod
+    def load(cls, directory):
+        d = Path(directory)
+        st = np.load(d / "stationarity.npz")
+        names = [str(n) for n in st["names"]]
+        res = {n: JointResult.load(d / f"{n}.npz") for n in names}
+        base = {n: JointResult.load(d / f"{n}_baseline.npz")
+                if (d / f"{n}_baseline.npz").exists() else None for n in names}
+        kappa = {n: k[np.isfinite(k)] for n, k in zip(names, st["kappa"])}
+        val = {k: (st[f"validation_{k}_keys"], st[f"validation_{k}_p"]) for k in ("held", "ice")}
+        return cls(res, base, {n: r.prior for n, r in res.items()}, kappa, st["keys"],
+                   st["p"], float(st["share"]), val)
+
+
+def invert(campaigns, ice_length=600.0, calibrate_every=2, shared="global", baseline=True,
+           map=map):
+    """The whole method over a set of campaigns of one tripod position.
+
+    For each campaign: the noise from the antennas, the path prior by marginal
+    likelihood on the rock, and a calibration solve with the held-out rock as
+    free candidates (every ``calibrate_every``-th held cell calibrates the
+    stationary spread, the rest are kept back).  Then candidate stationarity
+    once from every campaign, the kept-back rock and the ice put through it as
+    ground of known state, and the final solve per campaign (with
+    ``baseline``, also one without candidates, for comparison).
+
+    ``shared`` is ``"global"`` (one shared-noise level from the rock's
+    likelihood) or ``"cell"`` (measured per cell, :func:`shared_noise`).
+    ``map`` runs the per-campaign passes: pass ``executor.map`` of a
+    ``concurrent.futures`` pool to run them in parallel.
+    """
+    names = list(campaigns)
+    first = list(map(_first_pass, [(n, campaigns[n], calibrate_every, shared, ice_length)
+                                   for n in names]))
+    F = {f[0]: f for f in first}
+    obs = [F[n][3]["cand"] for n in names if campaigns[n].cand.n]
+    if obs:
+        keys, p, share, slab = shared_stationarity(obs)
+        with_cand = [n for n in names if campaigns[n].cand.n]
+        validation = {}
+        for kind in ("held", "ice"):
+            validation[kind] = stationarity_probability(
+                [F[n][3][kind] for n in with_cand], share, slab)
+    else:
+        keys, p, share, validation = np.zeros(0, np.int64), np.zeros(0), 0.0, {}
+    pmap = dict(zip(keys.tolist(), p))
+    jobs = []
+    for n in names:
+        c = campaigns[n]
+        pc = np.array([pmap.get(int(k), 0.0) for k in c.cand.key])
+        _, prior, _, observed, noise, sh = F[n]
+        jobs.append((n, c, prior, pc, observed["cand"][2], noise, sh, ice_length, baseline))
+    final = {f[0]: f for f in map(_final_pass, jobs)}
+    return Inversion(results={n: final[n][1] for n in names},
+                     baseline={n: final[n][2] for n in names},
+                     priors={n: F[n][1] for n in names}, kappa={n: F[n][2] for n in names},
+                     keys=keys, p=p, share=float(share), validation=validation)
 
 
 # ------------------------------------------------------------------- testing

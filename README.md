@@ -262,10 +262,9 @@ for s in $CAMPAIGNS; do python examples/baker_pathdelay.py --scene $s; done
 # --rewrap puts each longer baseline on the cycle nearest the chain it spans;
 # at single look that is the only thing separating the two
 python examples/baker_pathdelay.py --scene 20170803_full --lags 1 2 3 --rewrap
-# path delay and ice motion in one inversion of both antennas, every campaign:
-# cell series, path prior and calibration, stationarity of candidate ground
-# across campaigns, final solve (docs/joint.md; heights from GPRI_DEM_LIDAR)
-python examples/baker_joint.py --stage all
+# path delay and ice motion in one inversion of both antennas, every campaign
+# (docs/joint.md; heights from GPRI_DEM_LIDAR)
+python examples/baker_joint.py
 # what the corrected bedrock still does together: temporal modes of the
 # post-ladder residual over the fit half, scored on the half that was held out
 for s in 20170803_full 20180808 20190719; do python examples/baker_modes.py --scene $s; done

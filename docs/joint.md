@@ -7,6 +7,33 @@ them with one linear model of the **uncorrected, integrated series of both
 antennas**, solved for a whole campaign at once, and
 `examples/baker_joint.py` runs it on every campaign.
 
+## Using it
+
+Two calls take any set of campaigns from one tripod position from arrays to
+results. Nothing below is specific to Baker:
+
+```python
+from gpri_tools import jointinv as J
+from gpri_tools.plot import joint_elevation_time, joint_harmonic_map
+
+# per campaign: days since the first epoch, both antennas' integrated LOS (mm,
+# epochs x azimuth x range), map x/y (m), slant range, height, and the masks
+camps = {name: J.build_campaign(t, upper, lower, x, y, r, z,
+                                fit=fit, ice=ice, held=held, cand=cand,
+                                origin_hour=utc_hour_of_first_epoch)
+         for name, (t, upper, lower, x, y, r, z, fit, ice, held, cand,
+                    utc_hour_of_first_epoch) in data.items()}
+inv = J.invert(camps)                 # map=pool.map runs campaigns in parallel
+inv.save("joint/")                    # J.Inversion.load("joint/") reads it back
+
+amp, sigma, peak = inv.results[name].harmonic(camps[name].origin_hour)
+sigma *= np.sqrt(np.mean(inv.kappa[name][1:3]))     # the held-out calibration
+joint_harmonic_map(ax, inv.results[name], camps[name], "peak")
+```
+
+`Campaign.save` / `Campaign.load` cache the cell series, so a figure can be
+redrawn from saved results without the radar data.
+
 ## The model
 
 The scene is cut into 200 m ground cells of four kinds: the fit half of the
@@ -206,12 +233,11 @@ candidates at or above 2300 m with one shared level, the first column.
 ## Reproduce
 
 ```bash
-# cell series of both antennas (and the ladder's, for the scores), the path
-# prior and the calibration solve, stationarity across campaigns, final solve
-python examples/baker_joint.py --stage all
-# or in steps, e.g. after changing the candidate rules
-python examples/baker_joint.py --stage cells --scenes 20180808
-python examples/baker_joint.py --stage A
-python examples/baker_joint.py --stage EM
-python examples/baker_joint.py --stage B
+# cell series of both antennas (cached per campaign), the solve, scores, figures
+python examples/baker_joint.py
+# a setting the held-out rock rejected, kept for comparison
+python examples/baker_joint.py --stage solve --cand-min-z 0
+python examples/baker_joint.py --stage solve --shared-noise cell
+# redraw from the saved results
+python examples/baker_joint.py --stage figures
 ```
