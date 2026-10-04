@@ -7,8 +7,10 @@ One figure per campaign, two panels on one UTC clock.  Above, the mean LOS
 velocity of the coherent ice in each named RGI glacier the radar sees —
 Coleman, Roosevelt, Mazama and whatever else clears ``--min-pixels`` — in
 m/yr, positive toward the radar: the corrected displacement (the validated
-recipe, bedrock reference + per-epoch drift + per-epoch turbulence screen)
-averaged over the catchment and differenced over a ``--window`` of hours,
+recipe, bedrock reference + per-epoch drift + per-epoch turbulence screen,
+then the temporal path delay of :mod:`gpri_tools.pathdelay`, which
+``--no-path-delay`` leaves in) averaged over the catchment and differenced
+over a ``--window`` of hours,
 because at a two-minute cadence the epoch-to-epoch difference is noise.
 Below, the mean backscatter over the coherent ice (mean coherence >= 0.5) in
 the glacier outline, in dB, as ``baker_melt.py`` cached it.  The panels carry
@@ -51,45 +53,46 @@ from gpri_tools.pathdelay import (displacement_delay_field,            # noqa: E
 from gpri_tools.timeseries import los_displacement                        # noqa: E402
 
 
-# version 3: the path-delay rows are weighted by the pairs' coherence, so a
-# cached --path-delay run from before the weighting answers a different question
-CATCHMENTS_CACHE_VERSION = 3
+# version 4: the temporal path delay comes off by default, so a cache from
+# before it did answers a different question
+CATCHMENTS_CACHE_VERSION = 4
 
 # the flags that decide which pixels the catchment means are taken over; a
 # cache built under different ones answers a different question
 MASK_ARGS = ("ice_coherence", "stable_coherence", "min_pixels", "sigma")
 
-# and the flags that decide what the --path-delay stage takes out; they mean
-# nothing to a run without it, so they are only checked when it is on
+# and the flags that decide what the path-delay stage takes out; they mean
+# nothing to a --no-path-delay run, so they are only checked when it is on
 PATH_DELAY_ARGS = ("protect_period", "max_response")
 
 
-def catchments_path(scene: Path, antenna: str, dec: int, path_delay=False) -> Path:
+def catchments_path(scene: Path, antenna: str, dec: int) -> Path:
     """Where the catchment means are cached.
 
-    A run with the temporal path-delay stage writes beside the standard one
-    rather than over it, so the two can be compared — the same rule
-    ``baker_population.py`` uses for its height screen.
+    The temporal path delay comes off by default, so this is the corrected
+    product; ``cache_version`` and the stored flags say which run made it.
     """
     root = Path(os.environ.get("GPRI_WORK_ROOT", "work"))
-    tag = "_pd" if path_delay else ""
-    return root / scene.name / f"catchments_{antenna[0].lower()}_dec{dec}{tag}.npz"
+    return root / scene.name / f"catchments_{antenna[0].lower()}_dec{dec}.npz"
 
 
 def load_catchments(scene: Path, args):
     """The cached catchment means, or ``(None, reason)`` if they cannot be used.
 
     A cache stamped below ``CATCHMENTS_CACHE_VERSION`` holds a catchment set
-    the code no longer builds, and one built under different mask flags — or,
-    with ``--path-delay``, under a different weight floor — is an answer to a
-    different question; either way it has to be rebuilt.
+    the code no longer builds, and one built under different mask flags, on
+    the other side of ``--no-path-delay``, or under a different weight floor
+    is an answer to a different question; either way it has to be rebuilt.
     """
-    cache = catchments_path(scene, args.antenna, args.decimate, args.path_delay)
+    cache = catchments_path(scene, args.antenna, args.decimate)
     if not cache.exists():
         return None, "no cache"
     c = dict(np.load(cache, allow_pickle=False))
     if int(c.get("cache_version", 0)) < CATCHMENTS_CACHE_VERSION:
         return None, f"older than cache version {CATCHMENTS_CACHE_VERSION}"
+    if bool(c.get("path_delay", False)) != bool(args.path_delay):
+        return None, ("built with the path delay left in" if args.path_delay
+                      else "built with the path delay taken out")
     for k in MASK_ARGS + (PATH_DELAY_ARGS if args.path_delay else ()):
         want = np.atleast_1d(np.asarray(getattr(args, k), float))
         have = np.atleast_1d(np.asarray(c.get(k, np.nan), float))
@@ -203,8 +206,7 @@ def figure(c, melt, name, args):
     ax_b.xaxis.set_major_locator(loc)
     ax_b.xaxis.set_major_formatter(mdates.ConciseDateFormatter(loc))
     fig.tight_layout()
-    tag = "_pd" if args.path_delay else ""
-    out = args.outdir / f"27_catchments_{name}{tag}.png"
+    out = args.outdir / f"27_catchments_{name}{'' if args.path_delay else '_ladder'}.png"
     fig.savefig(out)
     plt.close(fig)
     print(f"wrote {out}")
@@ -225,10 +227,11 @@ def main():
                     help="turbulence screen kernel (azimuth, range) px")
     ap.add_argument("--window", type=float, default=2.0,
                     help="hours the velocity is differenced over")
-    ap.add_argument("--path-delay", action="store_true",
-                    help="also take out the temporal path delay "
-                         "(gpri_tools.pathdelay) after the ladder; caches and "
-                         "figure are written beside the standard ones")
+    ap.add_argument("--no-path-delay", dest="path_delay", action="store_false",
+                    help="leave the temporal path delay (gpri_tools.pathdelay) "
+                         "in: the ladder alone, as the catchment means were "
+                         "made before the delay stage became part of this "
+                         "product")
     ap.add_argument("--protect-period", type=float, default=1.0,
                     help="period (days) the path delay must leave alone")
     ap.add_argument("--max-response", type=float, default=0.01,
@@ -241,7 +244,7 @@ def main():
 
     name = args.scene
     scene = Path(SCENES.get(name, name))
-    cache = catchments_path(scene, args.antenna, args.decimate, args.path_delay)
+    cache = catchments_path(scene, args.antenna, args.decimate)
     c, why = (None, "") if args.recompute else load_catchments(scene, args)
     if c is not None:
         print(f"loaded {cache}")

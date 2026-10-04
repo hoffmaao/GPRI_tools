@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from gpri_tools.diurnal import (DIURNAL, MIN_CYCLES, SEMIDIURNAL, atmospheric_coherence,
+                                effective_sample_factor,
                           hour_composite, m_per_yr, periodic_detrend,
                           secular_slope,
                           decompose_los, diurnal_amplitude, diurnal_phase,
@@ -390,3 +391,73 @@ def test_slope_within_holds_the_binned_variables_fixed():
     assert np.isnan(slope_within(y, v, cell, min_count=10 ** 6)[0])
     with pytest.raises(ValueError):
         slope_within(y, v[:-1], cell)
+
+
+def test_amplitude_sigma_matches_the_scatter_it_predicts():
+    """The predicted one-sigma is the spread of repeated noisy fits."""
+    rng = np.random.default_rng(4)
+    t = np.linspace(0, 2.0, 400)
+    truth, noise = 3.0, 0.5
+    d = np.stack([truth * np.cos(2 * np.pi * t) + rng.normal(0, noise, t.size)
+                  for _ in range(300)], axis=1)
+    f = fit_harmonics(d, t)
+    measured = f.amplitude().std()
+    predicted = f.amplitude_sigma().mean()
+    assert predicted == pytest.approx(measured, rel=0.15)
+    assert f.amplitude().mean() == pytest.approx(truth, rel=0.02)
+
+
+def test_amplitude_sigma_falls_as_the_record_lengthens():
+    rng = np.random.default_rng(5)
+    sigmas = []
+    for n in (200, 800):
+        t = np.linspace(0, 2.0, n)
+        d = (2.0 * np.cos(2 * np.pi * t) + rng.normal(0, 0.5, n))[:, None]
+        sigmas.append(float(fit_harmonics(d, t).amplitude_sigma()[0]))
+    assert sigmas[1] == pytest.approx(sigmas[0] / 2, rel=0.25)
+
+
+def test_amplitude_sigma_needs_a_residual():
+    t = np.linspace(0, 2.0, 50)
+    f = fit_harmonics(np.cos(2 * np.pi * t)[:, None], t)
+    f.residual_rms = None
+    with pytest.raises(ValueError, match="residual_rms"):
+        f.amplitude_sigma()
+
+
+def test_white_residuals_need_no_inflation():
+    rng = np.random.default_rng(10)
+    r = rng.normal(0, 1.0, (500, 50))
+    factor = effective_sample_factor(r)
+    assert np.allclose(np.median(factor), 1.0, atol=0.1)
+
+
+def test_an_ar1_residual_inflates_by_the_known_factor():
+    rng = np.random.default_rng(11)
+    rho = 0.8
+    n = 4000
+    e = rng.normal(0, 1.0, (n, 30))
+    r = np.zeros_like(e)
+    for k in range(1, n):
+        r[k] = rho * r[k - 1] + e[k]
+    expect = np.sqrt((1 + rho) / (1 - rho))
+    assert np.median(effective_sample_factor(r)) == pytest.approx(expect, rel=0.1)
+
+
+def test_a_random_walk_with_no_signal_is_not_significant_once_corrected():
+    """The failure the correction exists for: noise that fits a harmonic."""
+    rng = np.random.default_rng(12)
+    t = np.linspace(0, 2.0, 600)
+    walk = np.cumsum(rng.normal(0, 1.0, (t.size, 200)), axis=0)
+    f = fit_harmonics(walk, t)
+    resid = walk - f.evaluate()
+    white = np.median(f.amplitude() / f.amplitude_sigma())
+    corrected = np.median(f.amplitude()
+                          / f.amplitude_sigma(inflation=effective_sample_factor(resid)))
+    assert white > 5          # the white-noise bar calls pure noise a detection
+    assert corrected < 2      # the corrected one does not
+
+
+def test_effective_sample_factor_needs_three_samples():
+    with pytest.raises(ValueError, match="three samples"):
+        effective_sample_factor(np.ones((2, 4)))

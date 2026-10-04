@@ -45,6 +45,8 @@ pathdelay/     one path delay per acquisition from double-differenced pairs,
                with the rows re-wrapped onto the chain and robustly weighted
 modes/         temporal modes of the corrected bedrock, and whether their
                loadings transfer to pixels that were not fitted
+jointinv/      path delay and ice motion in one inversion: every epoch, both
+               antennas, candidate reference ground decided across campaigns
 glaciers/      RGI outlines: where the ice actually is, independent of coherence
 refractivity/  the same screens from meteorology, and per-epoch N
 closure/       closure-phase bias estimation and correction
@@ -116,6 +118,14 @@ above was built for, and it is the only example in this repository.
 - [`docs/pathdelay.md`](docs/pathdelay.md) — the path delay estimated from
   double-differenced pairs instead of from bedrock: what it removes, what it
   provably cannot, and the numbers on six campaigns.
+- [`docs/joint.md`](docs/joint.md) — the ladder and the path delay replaced
+  by one inversion of both antennas' uncorrected series, with candidate
+  reference ground whose stationarity all campaigns decide together, scored
+  on held-out rock.
+- [`docs/observables.md`](docs/observables.md) — what else these
+  acquisitions measure: the 24 h harmonic per pixel against its own error,
+  coherence against temporal baseline, and the structure function of the
+  atmosphere the screens remove.
 
 ## Install
 
@@ -189,7 +199,7 @@ python examples/baker_aps.py --scene 20170803 --decimate 16 --sigma 5 25 --rgi -
 python examples/baker_rgi.py --scene 20170803 --decimate 16
 python examples/baker_pairlsq.py --scene 20170803 --decimate 16 --rgi
 python examples/baker_movie.py --scene 20170803 --rgi                  # cumulative
-python examples/baker_movie.py --scene 20170803 --rgi --rate-hours 2
+python examples/baker_movie.py --scene 20170803 --rgi --rate-hours 2 --path-delay
 python examples/baker_movie.py --scene 20170803 --rgi --anomaly mean   # + reference rate panel
 python examples/baker_movie.py --scene 20170803 --rgi --anomaly trend
 python examples/baker_movie.py --scene 20170803 --rgi --anomaly periodic  # tilt-free trend
@@ -202,10 +212,25 @@ python examples/baker_closure.py --scene 20170803 --lags 1 2 3 30 60 90 180 360 
 python examples/baker_repeat.py --scene 20170827 --decimate 16 --rgi
 python examples/baker_population.py --scene 20170827 --decimate 16 --rgi
 # every processed day on one UTC clock (needs baker_population.py run per scene)
-python examples/baker_seasons.py --scenes 20170713_full 20170803 20170827
-python examples/baker_seasons.py --detrend linear   # the same on per-pixel linear trends
+DAYS="20160826_full 20170713_full 20170803 20170827 20170913 20180709 20180808 20190719"
+python examples/baker_seasons.py --scenes $DAYS
+python examples/baker_seasons.py --scenes $DAYS --detrend linear  # per-pixel linear trends
 # what repeats hour to hour, for the campaigns that ran more than one day
 python examples/baker_composite.py --scenes 20170827 20180808 20190719
+# the same clock in velocity: the hour-of-day composite of the ice's LOS
+# velocity, with held-out bedrock underneath as the noise floor
+python examples/baker_velocity.py
+# what else the same acquisitions measure, one figure each (docs/observables.md)
+for s in 20170713_full 20170803_full 20170827 20180808 20190719; do
+  python examples/baker_harmonics.py --scene $s --decimate 16 --rgi
+done
+python examples/baker_decorrelation.py --scene 20170913 --lags 1 2 3 30 60 90 180 360
+for s in $CAMPAIGNS 20180709; do python examples/baker_turbulence.py --scene $s --rgi; done
+for s in $CAMPAIGNS; do python examples/baker_antenna_interferogram.py --scene $s --epochs 16; done
+python examples/baker_tracking.py --scene 20170913 --hours 2 --rgi
+python examples/baker_ps.py --scene 20170913 --hours 6
+python examples/baker_phaselink.py --scene 20170913 --epochs 24
+for s in $CAMPAIGNS; do python examples/baker_strain.py --scene $s --rgi; done
 # the weather beside the radar (SNOTEL + ERA5, a week either side, cached), and
 # what the ice does with it: the stratification forward model, the lag, the ice
 # against temperature, and which pixels carry the waveform
@@ -237,6 +262,10 @@ for s in $CAMPAIGNS; do python examples/baker_pathdelay.py --scene $s; done
 # --rewrap puts each longer baseline on the cycle nearest the chain it spans;
 # at single look that is the only thing separating the two
 python examples/baker_pathdelay.py --scene 20170803_full --lags 1 2 3 --rewrap
+# path delay and ice motion in one inversion of both antennas, every campaign:
+# cell series, path prior and calibration, stationarity of candidate ground
+# across campaigns, final solve (docs/joint.md; heights from GPRI_DEM_LIDAR)
+python examples/baker_joint.py --stage all
 # what the corrected bedrock still does together: temporal modes of the
 # post-ladder residual over the fit half, scored on the half that was held out
 for s in 20170803_full 20180808 20190719; do python examples/baker_modes.py --scene $s; done

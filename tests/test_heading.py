@@ -105,3 +105,31 @@ def test_sidecar_round_trip(tmp_path, monkeypatch, terrain):
         assert scene_heading("/elsewhere/20990101", default=105.0) == 105.0
     with pytest.raises(FileNotFoundError):
         scene_heading("/elsewhere/20990101")
+
+
+def test_dem_sampler_reads_a_projected_raster(tmp_path):
+    """A UTM raster (an airborne lidar DEM) is sampled at lat/lon, averaged on read, NaN off it."""
+    rasterio = pytest.importorskip("rasterio")
+    from pyproj import Transformer
+    from rasterio.transform import from_origin
+    from gpri_tools.heading import _dem_sampler
+
+    # a 2 m grid, 3 km square, a plane rising 0.1 m per metre east, nodata in one corner
+    x0, y0, res, n = 590000.0, 5410000.0, 2.0, 1500
+    E = x0 + res * (np.arange(n) + 0.5)
+    z = np.tile(1000.0 + 0.1 * (E - x0), (n, 1)).astype(np.float32)
+    z[:100, :100] = -3.4028230607370965e+38
+    path = tmp_path / "lidar.tif"
+    with rasterio.open(path, "w", driver="GTiff", width=n, height=n, count=1, dtype="float32",
+                       crs="EPSG:26910", transform=from_origin(x0, y0, res, res),
+                       nodata=-3.4028230607370965e+38) as dst:
+        dst.write(z, 1)
+    to_ll = Transformer.from_crs("EPSG:26910", "EPSG:4326", always_xy=True)
+    lon0, lat0 = to_ll.transform(x0 + 1500.0, y0 - 1500.0)
+    sample, z0 = _dem_sampler(str(path), lat0, lon0, half_width_deg=0.05, max_resolution=10.0)
+    assert z0 == pytest.approx(1150.0, abs=1.0)
+    lon, lat = to_ll.transform(np.array([x0 + 500.0, x0 + 2500.0]), np.array([y0 - 2000.0, y0 - 2000.0]))
+    np.testing.assert_allclose(sample(lat, lon), [1050.0, 1250.0], atol=1.0)
+    # inside the nodata corner, and off the raster altogether
+    lon, lat = to_ll.transform(np.array([x0 + 50.0, x0 - 500.0]), np.array([y0 - 50.0, y0 - 1500.0]))
+    assert np.all(np.isnan(sample(lat, lon)))

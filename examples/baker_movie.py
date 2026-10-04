@@ -57,6 +57,8 @@ from gpri_tools.aps import epoch_screen_correction, turbulence_screen    # noqa:
 from gpri_tools.diurnal import DIURNAL, MIN_CYCLES, m_per_yr, secular_slope  # noqa: E402
 from gpri_tools.geocode import BAKERBEND1_HEADING, RadarGeometry, map_grid  # noqa: E402
 from gpri_tools.heading import scene_heading                              # noqa: E402
+from gpri_tools.pathdelay import (displacement_delay_field,              # noqa: E402
+                                  pair_variance_from_coherence)
 from gpri_tools.timeseries import los_displacement                       # noqa: E402
 
 
@@ -129,6 +131,14 @@ def main():
                     help="render LOS motion over the trailing N hours instead "
                          "of cumulative displacement -- bounded noise, and the "
                          "right view for a diurnal signal")
+    ap.add_argument("--path-delay", action="store_true",
+                    help="after the ladder, also take out the temporal path "
+                         "delay (gpri_tools.pathdelay); the rate views ship "
+                         "this way")
+    ap.add_argument("--protect-period", type=float, default=1.0,
+                    help="period (days) the path delay must leave alone")
+    ap.add_argument("--max-response", type=float, default=0.01,
+                    help="most of that period the delay may take")
     ap.add_argument("--stride", type=int, default=1, help="use every Nth frame")
     ap.add_argument("--fps", type=int, default=24)
     ap.add_argument("--antenna", default="upper", choices=("upper", "lower"),
@@ -151,9 +161,13 @@ def main():
         return
     lam = stack.wavelength
     mean_cc = cc.mean(axis=0)
-    del cc
     stable = mean_cc >= args.stable_coherence
     show = mean_cc >= args.show_coherence
+    # each pair is worth what its coherence over the pixels the fit reads
+    # says; a pass over the whole stack, so only when the delay needs it
+    pair_var = (pair_variance_from_coherence(cc[:n], show | stable)
+                if args.path_delay else None)
+    del cc
     if args.rgi:
         import os as _os
         from gpri_tools.glaciers import load_outlines, stable_ground_mask
@@ -180,6 +194,23 @@ def main():
                                    weights=mean_cc, wrapped=False)
         d[k] -= scr
     print(f"drift + turbulence corrections in {time.time() - t0:.0f} s")
+
+    if args.path_delay:
+        # the part of what is left that is fast and spatially coherent: one
+        # delay per acquisition, fitted per pixel and screened, with the
+        # weight floored so a diurnal cannot go with it
+        t0 = time.time()
+        trusted = show | stable
+        field, plam = displacement_delay_field(
+            d, np.asarray(net.pairs[:n], int), np.asarray(times, float),
+            trusted, weights=mean_cc, sigma=tuple(args.sigma),
+            protect_period=args.protect_period, max_response=args.max_response,
+            pair_variance=pair_var)
+        d -= field.astype(d.dtype)
+        print(f"path delay (lambda {plam:.4g}) removed in {time.time() - t0:.0f} s; "
+              f"field sd {1000 * np.nanstd(field):.3f} mm over "
+              f"{trusted.sum():,} trusted px")
+        del field
 
     # ---------------- display smoothing (declared on the frame) ------------
     W = max(1, args.t_smooth)

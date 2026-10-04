@@ -276,6 +276,65 @@ class HarmonicFit:
         hours = (ph / (2.0 * np.pi)) * period * 24.0
         return np.mod(origin_hour + hours, period * 24.0)
 
+    def amplitude_sigma(self, period=DIURNAL, residual_rms=None,
+                        inflation=None):
+        """One-sigma uncertainty of :meth:`amplitude`, in the input's units.
+
+        Propagates the fit's own residual scatter through the least-squares
+        covariance of the two harmonic coefficients.  With ``C = (G^T G)^-1``
+        for the shared design ``G`` and the harmonic's coefficients ``a, b``,
+
+            var(A) = sigma^2 (a^2 C_aa + 2 a b C_ab + b^2 C_bb) / (a^2 + b^2)
+
+        which is the linearised error on ``A = hypot(a, b)``.  ``sigma`` is
+        :attr:`residual_rms` scaled to an unbiased variance by the degrees of
+        freedom, unless one is passed.  Weights are not carried here, so on a
+        weighted fit this is the unweighted reading of the same scatter.
+
+        **This is a white-noise error bar.**  It counts every epoch as an
+        independent sample, which a random walk is not: a series whose noise
+        wanders leaves a small residual about a fitted harmonic while still
+        being able to produce that harmonic out of nothing.  On the Baker
+        records the white-noise sigma is roughly twenty times too small,
+        which :func:`effective_sample_factor` measures and ``inflation``
+        applies — pass it and the answer is the correlated-noise error bar.
+
+        An amplitude only means something against this: a pixel whose
+        ``amplitude`` is not a few times its ``amplitude_sigma`` has measured
+        the noise.
+
+        Parameters
+        ----------
+        period : float
+        residual_rms : array, optional
+            Overrides :attr:`residual_rms`.
+        inflation : array or float, optional
+            Multiplies the returned sigma, for the factor by which correlated
+            residuals inflate it.  :func:`effective_sample_factor` computes it
+            from the residual series.
+        """
+        i = self._slot(period)
+        a, b = self.coeffs[i], self.coeffs[i + 1]
+        G = harmonic_design(self.times, self.periods, self.degree)
+        n, p = G.shape
+        C = np.linalg.pinv(G.T @ G)
+        rms = self.residual_rms if residual_rms is None else residual_rms
+        if rms is None:
+            raise ValueError("no residual_rms on this fit; pass one")
+        dof = max(n - p, 1)
+        var = np.asarray(rms, float) ** 2 * n / dof
+        denom = a ** 2 + b ** 2
+        with np.errstate(invalid="ignore", divide="ignore"):
+            factor = (a ** 2 * C[i, i] + 2 * a * b * C[i, i + 1]
+                      + b ** 2 * C[i + 1, i + 1]) / denom
+            # where the harmonic is zero the direction is undefined; take the
+            # mean of the two coefficients' variances, which is what a
+            # vanishing amplitude is measured against
+            factor = np.where(denom > 0, factor,
+                              0.5 * (C[i, i] + C[i + 1, i + 1]))
+        sigma = np.sqrt(var * factor)
+        return sigma if inflation is None else sigma * np.asarray(inflation, float)
+
     def explained_variance(self):
         """Fraction of the signal variance the model accounts for, per pixel."""
         if self.residual_rms is None or self.total_rms is None:
@@ -367,6 +426,41 @@ def fit_harmonics(displacement, times, periods=(DIURNAL,), degree=1,
     return HarmonicFit(X.reshape((G.shape[1],) + shape), t, periods, degree,
                        residual_rms=rms.reshape(shape),
                        total_rms=tot.reshape(shape), shape=shape)
+
+
+def effective_sample_factor(residual, axis=0, max_factor=1e3):
+    """How much correlated residuals inflate a least-squares error bar.
+
+    A white-noise error bar divides by the number of samples; correlated
+    noise gives fewer independent ones.  For a first-order process with
+    lag-one autocorrelation ``rho`` the effective count is ``n (1 - rho) /
+    (1 + rho)``, so a sigma computed as if the samples were independent is
+    too small by
+
+        sqrt((1 + rho) / (1 - rho))
+
+    which is what this returns, per pixel, from the residual series itself.
+    ``rho`` is clipped below at zero (anticorrelated residuals do not make an
+    error bar smaller than the independent one, they make the model wrong)
+    and the factor is capped at ``max_factor`` for a residual that is a pure
+    random walk, where ``rho`` reaches one and the expression diverges.
+
+    This is the standard first-order correction and it is a floor, not a
+    ceiling: a residual with structure beyond lag one is underestimated by
+    it.  The honest check on any amplitude remains the one this package
+    already uses — fit the same harmonic to ground that does not move.
+    """
+    r = np.moveaxis(np.asarray(residual, float), axis, 0)
+    n = r.shape[0]
+    if n < 3:
+        raise ValueError("an autocorrelation needs at least three samples")
+    r = r - np.nanmean(r, axis=0)
+    num = np.nansum(r[:-1] * r[1:], axis=0)
+    den = np.nansum(r * r, axis=0)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        rho = np.where(den > 0, num / den, 0.0)
+    rho = np.clip(np.nan_to_num(rho), 0.0, 1.0 - 1.0 / max_factor ** 2)
+    return np.sqrt((1.0 + rho) / (1.0 - rho))
 
 
 def diurnal_amplitude(displacement, times, **kwargs):
