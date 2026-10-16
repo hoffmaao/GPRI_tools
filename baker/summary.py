@@ -14,8 +14,8 @@ Everything on the 50 m grid's RGI ice (``grid.npz``):
   elevation band, for ``radar_single/`` and ``radar_joint/``, across all
   campaigns and across the 2017 ones;
 * the run's fields (:mod:`baker.run`): the thickness, its prior, the bed
-  and the stationary effective pressure, on the ice and at the cells the
-  campaigns observe (each at its nearest grid cell); for each campaign its
+  and the stationary effective pressure, on the ice and at the distinct
+  grid cells nearest the cells the campaigns observe (each counted once); for each campaign its
   departure ``q0``, its mean ``N`` and the 24 h amplitude of ``log N`` at its
   own cells; and from ``run.log`` the objective and each campaign's misfit
   per observation at the first and the last iteration.
@@ -62,11 +62,23 @@ def spread(dh, z, ice, groups, bands=BANDS):
     return int(ok.sum()), rows
 
 
-def at_cells(field, x, y, xy):
-    """``field`` (rows along ``y``) at the grid cell nearest each point of ``xy``."""
+def nearest(x, y, xy):
+    """The row and column indices ``(j, i)`` of the grid cell nearest each point of ``xy``."""
     i = np.abs(x[None, :] - xy[:, :1]).argmin(axis=1)
     j = np.abs(y[None, :] - xy[:, 1:]).argmin(axis=1)
-    return field[j, i]
+    return j, i
+
+
+def at_cells(field, x, y, xy):
+    """``field`` (rows along ``y``) at the grid cell nearest each point of ``xy``."""
+    return field[nearest(x, y, xy)]
+
+
+def distinct_cells(x, y, xys):
+    """The distinct grid cells ``(j, i)`` nearest the points of every array in ``xys``, each once."""
+    j, i = nearest(x, y, np.vstack(list(xys)))
+    jc, ic = np.unique(np.stack([j, i], axis=1), axis=0).T
+    return jc, ic
 
 
 def read_log(log):
@@ -126,19 +138,22 @@ def fields(folder, run, grid):
         name = p.name[:-len("_obs.npz")]
         if f"{name}_N_mean" in f.files:
             cells[name] = Observations.load(p)[0].xy
-    xy = np.vstack(list(cells.values()))
-    H, Hc, Pc = f["H"], at_cells(f["H"], x, y, xy), at_cells(prior, x, y, xy)
+    j, i = distinct_cells(x, y, cells.values())
+    on = ice[j, i]
+    j, i, n_cells = j[on], i[on], len(on)
+    H, Hc, Pc = f["H"], f["H"][j, i], prior[j, i]
     with np.errstate(divide="ignore", invalid="ignore"):
         ratio, ratio_c = np.where(prior > 1, H / prior, np.nan), np.where(Pc > 1, Hc / Pc, np.nan)
     print(f"thickness (m) 5/50/95: on the ice {_q(percentiles(H[ice]), '{:.0f}')}, prior "
           f"{_q(percentiles(prior[ice]), '{:.0f}')}, median ratio {np.nanmedian(ratio[ice]):.2f}")
-    print(f"  at the {np.isfinite(Hc).sum()} observed cells on the ice (of {len(xy)}): "
+    print(f"  at the {len(j)} distinct grid cells on the ice nearest the observed cells "
+          f"(of {n_cells}, from {sum(len(c) for c in cells.values())} campaign-cells): "
           f"{_q(percentiles(Hc), '{:.0f}')}, prior {_q(percentiles(Pc), '{:.0f}')}, median ratio "
           f"{np.nanmedian(ratio_c):.2f}")
     print(f"bed (m) 5/50/95 on the ice: {_q(percentiles(f['bed'][ice]), '{:.0f}')}")
     if "N_stationary" in f.files:
         print(f"stationary N (MPa): on the ice {_q(percentiles(f['N_stationary'][ice]), '{:.3f}')}, "
-              f"at the observed cells {_q(percentiles(at_cells(f['N_stationary'], x, y, xy)), '{:.3f}')}")
+              f"at those cells {_q(percentiles(f['N_stationary'][j, i]), '{:.3f}')}")
     its, J, misfit = read_log(run / "run.log")
     tail = f"; over the last ten iterations {J[-1] - J[-11]:+.1f}" if len(J) > 10 else ""
     print(f"objective: iteration {its[0]} {J[0]:.1f}, iteration {its[-1]} {J[-1]:.1f}{tail}")

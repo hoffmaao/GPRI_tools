@@ -1,7 +1,7 @@
 """The numbers docs/flow.md quotes: spread between campaigns, values at cells, the run log."""
 import numpy as np
 
-from baker.summary import at_cells, read_log, spread
+from baker.summary import at_cells, distinct_cells, read_log, spread
 
 
 def test_spread_is_the_sd_across_campaigns_on_cells_seen_by_all():
@@ -28,6 +28,15 @@ def test_at_cells_takes_the_nearest_grid_cell():
     field = np.arange(6.0).reshape(2, 3)      # rows along y
     xy = np.array([[49.0, 1001.0], [99.0, 1049.0], [-10.0, 1100.0]])
     assert at_cells(field, x, y, xy).tolist() == [1.0, 5.0, 3.0]
+
+
+def test_distinct_cells_counts_a_grid_cell_seen_by_several_campaigns_once():
+    x = np.array([0.0, 50.0, 100.0])
+    y = np.array([1000.0, 1050.0])
+    first = np.array([[49.0, 1001.0], [99.0, 1049.0]])
+    second = np.array([[52.0, 998.0], [1.0, 1000.0]])     # a few metres from the first's first cell
+    j, i = distinct_cells(x, y, [first, second])
+    assert sorted(zip(j.tolist(), i.tolist())) == [(0, 0), (0, 1), (1, 2)]
 
 
 def test_read_log_takes_the_objective_and_each_misfit(tmp_path):

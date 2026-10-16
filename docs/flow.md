@@ -155,7 +155,7 @@ Thickness, median (5th to 95th %):
 | | inverted (m) | prior (m) | median ratio |
 |---|---:|---:|---:|
 | the grid's 9,971 RGI ice cells | 42 (11 to 83) | 48 (17 to 89) | 0.90 |
-| the 2,126 observed cells on the ice | 39 (10 to 73) | 46 (17 to 85) | 0.81 |
+| the 560 grid cells nearest the campaigns' observed cells | 41 (11 to 76) | 49 (18 to 86) | 0.82 |
 
 The bed on the ice is 2,176 m (1,703 to 2,929 m).
 
@@ -166,7 +166,7 @@ The bed on the ice is 2,176 m (1,703 to 2,929 m).
 black.*
 
 The stationary effective pressure `N_bar = exp(q_bar)` is 0.98 MPa
-(0.82 to 1.29 MPa) on the ice and 0.94 MPa (0.77 to 1.15 MPa) at the observed
+(0.82 to 1.29 MPa) on the ice and 0.94 MPa (0.78 to 1.15 MPa) at those 560
 cells.
 
 ![Stationary effective pressure](figures/45_flow_n_stationary.png)
