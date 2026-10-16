@@ -203,15 +203,20 @@ class Problem:
             if isinstance(d, RadarStrainRates):
                 d.epoch = campaign_epoch(d.name)
         changes = {}
-        if surface == "dhdt" and (folder / "surface.npz").exists():
+        if surface == "dhdt":
+            if not (folder / "surface.npz").exists():
+                raise FileNotFoundError(f"--surface dhdt needs {folder / 'surface.npz'}")
             sf = np.load(folder / "surface.npz")
             for d in datasets:
                 changes[d.name] = np.where(g["ice"], sf["dhdt"], 0.0) * (d.epoch - float(sf["t_ref"]))
         elif surface == "radar":
             radar = {}
-            for p in (folder / radar_dir if radar_dir else folder).glob("radar_dh_*.npz"):
+            where = folder / radar_dir if radar_dir else folder
+            for p in where.glob("radar_dh_*.npz"):
                 r = np.load(p)
                 radar[p.stem[len("radar_dh_"):]] = (np.where(g["ice"], r["dh"], np.nan), r["sd"])
+            if not radar:
+                raise FileNotFoundError(f"--surface radar found no radar_dh_*.npz in {where}")
             for d in datasets:
                 if d.name in radar:
                     changes[d.name] = np.nan_to_num(radar[d.name][0])
@@ -225,6 +230,8 @@ class Problem:
                         changes[d.name] = np.where(den > 0, num / np.maximum(den, 1e-30), 0.0)
         elif surface != "lidar":
             raise ValueError(f"unknown surface source {surface!r}")
+        print(f"surface change ({surface}): "
+              + (", ".join(d.name for d in datasets if d.name in changes) or "none"), flush=True)
         for d in datasets:
             if d.name in changes:
                 d.ds = Function(Q, name=f"{d.name}_surface_change").assign(
@@ -376,6 +383,8 @@ class Problem:
             except firedrake.ConvergenceError:
                 pause_annotation()
                 get_working_tape().clear_tape()
+                if last["J"] is None:
+                    raise
                 log("  no solution at this step; backtracking")
                 return 10.0 * abs(last["J"]), last["g"]
             get_working_tape().clear_tape()

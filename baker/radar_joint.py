@@ -252,8 +252,12 @@ def write(out, grid, looks, masks, fit, e, names, args):
         noise = np.full(dh.shape, np.nan)
         for lo, hi in zip(bands[:-1], bands[1:]):
             mb = m & (d["R"] >= lo) & (d["R"] < hi)
-            noise[(d["R"] >= lo) & (d["R"] < hi)] = robust_sd(dh[mb])
+            inb = ((d["R"] >= lo) | (lo == bands[0])) & ((d["R"] < hi) | (hi == bands[-1]))
+            noise[inb] = robust_sd(dh[mb])
         use = d["valid"] & (d["coherence"] >= args.coherence)
+        outside = use & d["on_ice"] & ((d["R"] < bands[0]) | (d["R"] > bands[-1]))
+        print(f"  {n:15s} coherent ice looks outside the ice-free range span: "
+              f"{outside.sum()} of {(use & d['on_ice']).sum()}", flush=True)
         w = np.where(use, 1.0 / np.maximum(noise, 0.1) ** 2, 0.0)
         v, wg = to_cells(grid, d, np.where(use, dh, np.nan), w)
         dh_g, n_eff = smooth_on_grid(v, wg, width)

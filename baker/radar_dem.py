@@ -281,6 +281,9 @@ def run_scene(name, args):
     # noise by range: the ice-free scatter of dh in range bands
     bands = np.quantile(R[m], np.linspace(0, 1, 6))
     noise = np.full(s.shape, np.nan)
+    ice_looks = valid & on_ice & (g >= args.coherence)
+    print(f"  coherent ice looks outside the ice-free range span: "
+          f"{(ice_looks & ((R < bands[0]) | (R > bands[-1]))).sum()} of {ice_looks.sum()}", flush=True)
     print(f"  calibrated: k {k:+.4f} (B {k * B0:+.4f} m); ramp {coef[1]:+.4f} rad/look-row, "
           f"{coef[2]:+.5f} rad/look-col; horizontal baseline {coef[5] * B0:+.4f} m; "
           f"lidar shift {coef[6]:+.2f} az, {coef[7]:+.2f} rg looks; "
@@ -288,7 +291,8 @@ def run_scene(name, args):
     for lo, hi in zip(bands[:-1], bands[1:]):
         mb = m & (R >= lo) & (R < hi)
         sd = 1.4826 * np.median(np.abs(dh[mb] - np.median(dh[mb])))
-        noise[(R >= lo) & (R < hi)] = sd
+        inb = ((R >= lo) | (lo == bands[0])) & ((R < hi) | (hi == bands[-1]))
+        noise[inb] = sd
         amb = upper.wavelength * (lo + hi) / 2 / (abs(k) * B0)
         print(f"   {lo / 1e3:4.1f}-{hi / 1e3:4.1f} km: ice-free dh median {np.median(dh[mb]):+.2f} m, "
               f"sd {sd:5.1f} m per look (height per cycle {amb:5.0f} m)", flush=True)

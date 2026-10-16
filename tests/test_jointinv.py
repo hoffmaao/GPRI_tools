@@ -262,6 +262,15 @@ def test_invert_runs_the_whole_method_and_saves(tmp_path):
     np.testing.assert_allclose(back.results["c22"].theta, inv.results["c22"].theta)
 
 
+def test_invert_without_candidates_saves_and_loads(tmp_path):
+    camp, _ = _campaign(nt=49, rng=np.random.default_rng(23))
+    inv = J.invert({"c23": camp}, baseline=False)
+    assert inv.keys.size == 0 and inv.validation == {}
+    inv.save(tmp_path / "joint")
+    back = J.Inversion.load(tmp_path / "joint")
+    assert back.validation == {} and back.keys.size == 0
+    np.testing.assert_allclose(back.results["c23"].theta, inv.results["c23"].theta)
+
 def test_plot_helpers_draw_a_result():
     import datetime as dt
     import matplotlib

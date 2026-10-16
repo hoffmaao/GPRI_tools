@@ -781,7 +781,8 @@ class Inversion:
         base = {n: JointResult.load(d / f"{n}_baseline.npz")
                 if (d / f"{n}_baseline.npz").exists() else None for n in names}
         kappa = {n: k[np.isfinite(k)] for n, k in zip(names, st["kappa"])}
-        val = {k: (st[f"validation_{k}_keys"], st[f"validation_{k}_p"]) for k in ("held", "ice")}
+        val = {k: (st[f"validation_{k}_keys"], st[f"validation_{k}_p"]) for k in ("held", "ice")
+               if f"validation_{k}_keys" in st.files}
         return cls(res, base, {n: r.prior for n, r in res.items()}, kappa, st["keys"],
                    st["p"], float(st["share"]), val)
 

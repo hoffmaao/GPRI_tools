@@ -36,8 +36,8 @@ height change measured by the radar's two receive antennas
   Internal deformation is added through the basal term, as in icepack2.
 * **Observation**: the surface velocity (sliding plus the deformation
   profile's surface value) projected on each cell's unit vector toward the
-  radar, with the vertical velocity of flow parallel to the 2015 lidar
-  surface; the strain rate of a pair is the difference over the separation
+  radar, with the vertical velocity of flow parallel to each campaign's own
+  surface (the 2015 lidar plus its surface change, s_2015 + ds_k); the strain rate of a pair is the difference over the separation
   (`baker/observe.py`, with an exact adjoint for the pair misfit).
 * **ITS_LIVE**: the horizontal surface velocity at each pixel on the ice;
   each component's standard deviation is the mosaic's error combined with
