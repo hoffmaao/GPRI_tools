@@ -209,3 +209,79 @@ def test_stationarity_probability_reproduces_the_fit_on_its_own_data():
     k2, p2 = J.stationarity_probability(obs, share, slab)
     np.testing.assert_array_equal(k, k2)
     np.testing.assert_allclose(p, p2, atol=1e-6)
+
+
+def test_build_campaign_makes_cells_from_images():
+    rng = np.random.default_rng(2)
+    nt, na, nr = 6, 20, 30
+    y, x = np.meshgrid(np.arange(na) * 100.0, 5000 + np.arange(nr) * 100.0, indexing="ij")
+    r = 5000 + np.arange(nr) * 100.0
+    z = 1500.0 + 0.1 * (x - 5000)
+    z[0, 0] = np.nan                                   # a pixel the DEM misses
+    up = rng.normal(size=(nt, na, nr)).cumsum(0)
+    lo = up + 0.1 * rng.normal(size=(nt, na, nr))
+    left = x < 6500
+    camp = J.build_campaign(np.linspace(0, 1, nt), up, lo, x, y, r, z,
+                            fit=left & (y < 1000), held=left & (y >= 1000), ice=~left,
+                            size=500.0, min_pixels=(1, 1, 1, 1), origin_hour=13.5)
+    assert camp.cand.n == 0
+    assert camp.fit.n > 0 and camp.ice.n > 0 and camp.held.n > 0
+    np.testing.assert_allclose(camp.ice.yu[0], 0.0)              # relative to the first epoch
+    assert camp.fit.n_px.sum() + camp.held.n_px.sum() == left.sum() - 1
+    assert camp.origin_hour == 13.5
+
+
+def test_campaign_and_result_round_trip(tmp_path):
+    camp, _ = _campaign()
+    camp.save(tmp_path / "c.npz", clock=np.arange(3))
+    back, extra = J.Campaign.load(tmp_path / "c.npz")
+    np.testing.assert_array_equal(back.ice.yu, camp.ice.yu)
+    np.testing.assert_array_equal(extra["clock"], np.arange(3))
+    res = J.solve(camp, J.PathPrior(length=1500.0))
+    res.save(tmp_path / "r.npz")
+    again = J.JointResult.load(tmp_path / "r.npz")
+    np.testing.assert_allclose(again.harmonic()[0], res.harmonic()[0])
+    assert again.prior == res.prior
+
+
+def test_invert_runs_the_whole_method_and_saves(tmp_path):
+    camps = {}
+    for seed in (21, 22):
+        c, _ = _campaign(nt=49, n_cand=16, cand_moving=np.arange(8, 16),
+                         rng=np.random.default_rng(seed))
+        camps[f"c{seed}"] = c
+    inv = J.invert(camps)
+    assert set(inv.results) == set(camps)
+    assert inv.keys.size == 16 and np.all((inv.p >= 0) & (inv.p <= 1))
+    amp, _, _ = inv.results["c21"].harmonic()
+    assert np.median(amp) == pytest.approx(8.0, abs=1.5)
+    assert {"held", "ice"} <= set(inv.validation)
+    inv.save(tmp_path / "joint")
+    back = J.Inversion.load(tmp_path / "joint")
+    np.testing.assert_allclose(back.p, inv.p)
+    np.testing.assert_allclose(back.results["c22"].theta, inv.results["c22"].theta)
+
+
+def test_invert_without_candidates_saves_and_loads(tmp_path):
+    camp, _ = _campaign(nt=49, rng=np.random.default_rng(23))
+    inv = J.invert({"c23": camp}, baseline=False)
+    assert inv.keys.size == 0 and inv.validation == {}
+    inv.save(tmp_path / "joint")
+    back = J.Inversion.load(tmp_path / "joint")
+    assert back.validation == {} and back.keys.size == 0
+    np.testing.assert_allclose(back.results["c23"].theta, inv.results["c23"].theta)
+
+def test_plot_helpers_draw_a_result():
+    import datetime as dt
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from gpri_tools.plot import joint_elevation_time, joint_harmonic_map
+    camp, _ = _campaign()
+    res = J.solve(camp, J.PathPrior(length=1500.0))
+    fig, (a, b, c) = plt.subplots(1, 3)
+    assert joint_harmonic_map(a, res, camp, "amplitude") is not None
+    assert joint_harmonic_map(b, res, camp, "peak", sigma_scale=3.0) is not None
+    mesh = joint_elevation_time(c, res, camp, dt.datetime(2018, 8, 9), utc_offset=-7)
+    assert np.isfinite(mesh.get_array()).any()
+    plt.close(fig)

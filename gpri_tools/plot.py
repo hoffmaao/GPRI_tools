@@ -27,7 +27,8 @@ import numpy as np
 __all__ = [
     "radar_image", "map_image", "velocity_map", "displacement_series",
     "network_plot", "closure_bias_plot", "refractivity_plot", "ps_map",
-    "coverage_map", "scalebar", "north_arrow",
+    "coverage_map", "scalebar", "north_arrow", "joint_harmonic_map",
+    "joint_elevation_time",
 ]
 
 #: Sensible defaults per quantity: colormap, whether it is symmetric about zero.
@@ -483,3 +484,87 @@ def diurnal_summary(fit, times, slant_range=None, mask=None, origin_hour=0.0,
 
 
 __all__.append("diurnal_summary")
+
+
+# ------------------------------------------------------- the joint inversion
+def joint_harmonic_map(ax, result, campaign, which="amplitude", sigma_scale=1.0,
+                       stationary=None, vmax=None, size=30):
+    """The 24 h terms of :func:`gpri_tools.jointinv.solve` on the ice cells.
+
+    ``which`` is ``"amplitude"`` (mm, ``viridis``) or ``"peak"`` (UTC hour,
+    ``hsv``, cyclic); a peak hour is drawn solid only where the amplitude is
+    more than twice its sigma, the formal one times ``sigma_scale`` (the
+    held-out calibration, :attr:`gpri_tools.jointinv.Inversion.kappa`).
+    Fit-half rock (light grey) and held-out rock (dark grey) cells sit
+    beneath; ``stationary`` (a boolean per candidate) adds the candidates
+    found still as black triangles.  Axes are km in the local map frame.
+    Returns the scatter, for a colorbar.
+    """
+    amp, sig, peak = result.harmonic(campaign.origin_hour)
+    for cells, colour in ((campaign.fit, "0.75"), (campaign.held, "0.45")):
+        ax.scatter(cells.xy[:, 0] / 1000, cells.xy[:, 1] / 1000, s=8, color=colour, lw=0)
+    if stationary is not None and np.any(stationary):
+        xy = campaign.cand.xy[np.asarray(stationary, bool)]
+        ax.scatter(xy[:, 0] / 1000, xy[:, 1] / 1000, s=22, color="k", marker="^", lw=0)
+    xy = campaign.ice.xy / 1000
+    if which == "amplitude":
+        sc = ax.scatter(xy[:, 0], xy[:, 1], c=amp, cmap="viridis", vmin=0,
+                        vmax=vmax or float(np.percentile(amp, 97)), s=size, marker="s", lw=0)
+    else:
+        solid = amp > 2 * sig * sigma_scale
+        sc = ax.scatter(xy[:, 0], xy[:, 1], c=peak, cmap="hsv", vmin=0, vmax=24, s=size,
+                        marker="s", lw=0, alpha=np.where(solid, 1.0, 0.2))
+    ax.set_aspect("equal")
+    return sc
+
+
+def joint_elevation_time(ax, result, campaign, epoch0, band=100.0, bin_hours=0.5,
+                         utc_offset=None, night=(0, 6), vmax=None):
+    """Ice motion beyond offset and rate, by elevation band against UTC time.
+
+    Each ice cell's 24 h terms plus its remainder (:meth:`JointResult.ice_motion`),
+    pixel-weighted into ``band``-metre elevation bands and ``bin_hours`` means,
+    on a diverging scale symmetric about zero.  ``epoch0`` is the UTC
+    ``datetime`` of the first epoch; with ``utc_offset`` (hours) the local
+    ``night`` hours are marked by a bar along the top edge.  Returns the mesh.
+    """
+    import datetime as dt
+    import matplotlib.dates as mdates
+
+    ice = campaign.ice
+    mot = result.ice_motion()
+    mot = mot - mot.mean(axis=0)
+    edges = np.arange(np.floor(np.nanmin(ice.z) / band) * band,
+                      np.nanmax(ice.z) + band, band)
+    which = np.digitize(ice.z, edges) - 1
+    hours = np.asarray(campaign.t, float) * 24.0
+    tb = np.arange(0, hours[-1] + bin_hours, bin_hours)
+    ti = np.digitize(hours, tb) - 1
+    M = np.full((edges.size - 1, tb.size - 1), np.nan)
+    for k in range(edges.size - 1):
+        sel = which == k
+        if sel.sum() < 2:
+            continue
+        s_ = np.average(mot[:, sel], axis=1, weights=ice.n_px[sel])
+        for i in range(tb.size - 1):
+            m = ti == i
+            if m.any():
+                M[k, i] = s_[m].mean()
+    lim = vmax or float(np.nanpercentile(np.abs(M), 98))
+    times = [epoch0 + dt.timedelta(hours=float(h)) for h in tb]
+    mesh = ax.pcolormesh(mdates.date2num(times), edges, M, cmap="RdBu_r",
+                         vmin=-lim, vmax=lim, shading="flat")
+    if utc_offset is not None:
+        shift = dt.timedelta(hours=float(utc_offset))
+        day = (times[0] + shift).replace(hour=0, minute=0, second=0, microsecond=0) - shift
+        while day < times[-1]:
+            a = max(day + dt.timedelta(hours=night[0]), times[0])
+            b = min(day + dt.timedelta(hours=night[1]), times[-1])
+            if a < b:
+                ax.axvspan(mdates.date2num(a), mdates.date2num(b), ymin=0.975, ymax=1.0,
+                           color="0.3", lw=0)
+            day += dt.timedelta(days=1)
+    loc = mdates.HourLocator(byhour=range(0, 24, 3 if hours[-1] <= 30 else 6))
+    ax.xaxis.set_major_locator(loc)
+    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(loc))
+    return mesh
