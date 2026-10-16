@@ -118,10 +118,8 @@ locations), and the ice (340 locations).
 | held-out rock | 74 % | 73 % of 165 | 3 of 3 | 7 of 8 |
 | ice | 20 % | 26 % of 203 | 17 % of 60 | 9 % of 77 |
 
-The evidence is the rate and the 24 h terms together. With the earlier
-pixel-by-pixel split, rate alone called more ice still (23 % against 15 %)
-and the 24 h terms alone called less rock still (40 % against 79 %). The
-probability, not the call, enters the final solve.
+The evidence is the rate and the 24 h terms together. The probability, not
+the call, enters the final solve.
 
 ## Scores on held-out rock
 
@@ -227,7 +225,8 @@ still, against 74 %. The defaults are therefore candidates at or above
 ```bash
 # cell series of both antennas (cached per campaign), the solve, scores, figures
 python examples/baker_joint.py
-# a setting the held-out rock rejected, kept for comparison
+# settings the held-out rock rejected, kept for comparison; their figures go
+# beside their results ($GPRI_WORK_ROOT/joint/<setting>/figures), not docs/figures
 python examples/baker_joint.py --stage solve --cand-min-z 0
 python examples/baker_joint.py --stage solve --shared-noise cell
 # redraw from the saved results
