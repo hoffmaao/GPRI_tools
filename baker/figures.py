@@ -39,10 +39,14 @@ figure, the RGI outlines on every map:
 ``fig/radar/`` (or ``fig/<--radar-source>/`` for ``radar_single`` or
 ``radar_joint``, :mod:`baker.radar_joint`): ``radar_dh_<campaign>.png`` and
 ``radar_sd_<campaign>.png``, the surface minus the 2015 lidar and its sd on
-the 200 m grid; ``radar_z_<campaign>.png``, the lidar plus that change, and
+the 50 m grid; ``radar_z_<campaign>.png``, the lidar plus that change, and
 ``radar_z_lidar.png``, the lidar over the same cells on the same scale; and
 ``radar_dh_elevation.png``, each campaign's median change on the ice by
 elevation band.
+
+``--docs DIR`` (with ``--run``) copies the figures ``docs/flow.md`` shows
+into ``DIR`` (``docs/figures``) under their names there, once the radar
+figures and the run's plots are drawn.
 
 ``--surface`` instead draws the surfaces the flow model is given
 (:mod:`baker.surface`), into ``fig/surface/``:
@@ -328,6 +332,35 @@ def radar_figures(folder, source=None):
     print(f"-> {out} ({len(list(out.glob('*.png')))} figures)")
 
 
+def docs_figures(folder, run, dest):
+    """Copy the figures ``docs/flow.md`` shows into ``dest``, under their names there.
+
+    The radar's come from ``fig/radar_single`` and ``fig/radar_joint``
+    (``--radar``), the inversion's from the run's ``fig/``; every one has to
+    be drawn already.  Returns the copies.
+    """
+    import shutil
+
+    radar, fig = folder / "fig", run / "fig"
+    names = sorted(p.stem[len("radar_dh_"):] for p in (folder / "radar_single").glob("radar_dh_*.npz"))
+    pairs = [(radar / "radar_single" / "radar_dh_elevation.png", "42_radar_dh_elevation.png"),
+             (radar / "radar_joint" / "radar_dh_elevation.png", "42_radar_dh_elevation_joint.png"),
+             (radar / "radar_single" / "radar_sd_20170803_full.png", "43_radar_sd_20170803_full.png")]
+    pairs += [(radar / "radar_single" / f"radar_dh_{n}.png", f"43_radar_dh_{n}.png") for n in names]
+    pairs += [(fig / f"{k}.png", f"{number}_flow_{k}.png") for number, k in
+              (("44", "thickness"), ("44", "bed"), ("45", "n_stationary"), ("48", "misfit"))]
+    pairs += [(p, f"46_flow_{p.name}") for p in sorted(fig.glob("dlogn_*.png"))]
+    pairs += [(p, f"47_flow_{p.name}") for p in sorted(fig.glob("logn_*_*.png"))]
+    missing = [str(p) for p, _ in pairs if not p.exists()] or (
+        [] if names else [str(folder / "radar_single" / "radar_dh_*.npz")])
+    if missing:
+        raise SystemExit("draw these first: " + ", ".join(missing))
+    dest.mkdir(parents=True, exist_ok=True)
+    for p, name in pairs:
+        shutil.copyfile(p, dest / name)
+    return [dest / name for _, name in pairs]
+
+
 def main():
     import argparse
     ap = argparse.ArgumentParser(description=__doc__,
@@ -342,9 +375,15 @@ def main():
                     help="with --radar: a subfolder holding the surfaces, e.g. radar_joint")
     ap.add_argument("--run", default="",
                     help="subfolder holding the inversion's fields (baker.run --out)")
+    ap.add_argument("--docs", type=Path, default=None,
+                    help="copy the figures docs/flow.md shows into this folder (docs/figures)")
     args = ap.parse_args()
     folder = Path(os.environ.get("GPRI_WORK_ROOT", "work")) / "baker"
     run = folder / args.run if args.run else folder
+    if args.docs:
+        written = docs_figures(folder, run, args.docs)
+        print(f"-> {args.docs} ({len(written)} figures)")
+        return
     if args.radar:
         radar_figures(folder, args.radar_source)
         return
