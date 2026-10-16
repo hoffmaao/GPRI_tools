@@ -40,7 +40,8 @@ lambda) dh / R``, so
 
 the campaign's surface minus the lidar's.  A few metres is a small fraction
 of a cycle (tens to hundreds of metres), so no unwrapping is needed.  The
-ice-free ground's scatter about zero, per range band, is the noise.
+ice-free ground's scatter about zero, per range band, is the noise; ice
+nearer or farther than any ice-free ground takes the nearest band's.
 
 Terrain steeper than ``--max-slope`` (45 degrees) is left out everywhere
 (layover and shadow).  Ice-free ground below ``--stable-min-z`` (1700 m) is left out of the

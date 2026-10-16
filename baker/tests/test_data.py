@@ -63,3 +63,29 @@ def test_smoothing_leaves_cells_without_data_empty():
     assert np.isnan(smoothed[far]).all()
     assert (n_eff[far] == 0).all()
     assert np.isfinite(smoothed[:10, :10]).all()
+
+
+def test_ice_beyond_the_ice_free_ranges_keeps_its_height_change(tmp_path):
+    """Ice nearer or farther than any calibration ground takes the nearest band's noise."""
+    from types import SimpleNamespace
+    from baker.radar_joint import write
+    rng = np.random.default_rng(2)
+    R = np.linspace(1000.0, 3000.0, 400)[None, :].repeat(40, axis=0)
+    off_ice = (R >= 1500.0) & (R <= 2500.0)
+    dh = np.where(off_ice, rng.normal(0.0, 1.0, R.shape), -5.0)
+    x = np.broadcast_to(np.arange(400.0)[None, :] * 5.0, R.shape)
+    y = np.broadcast_to(np.arange(40.0)[:, None] * 5.0, R.shape)
+    zeros = np.zeros_like(R)
+    d = dict(phase=dh / R, R=R, s=zeros, h=np.full_like(R, 2000.0), unit=np.ones_like(R),
+             k0=1.0, ds_row=zeros, ds_col=zeros, rows=zeros, cols=zeros, x=x, y=y,
+             valid=np.ones_like(R, dtype=bool), coherence=np.ones_like(R),
+             on_ice=~off_ice, off_ice=off_ice)
+    grid = dict(x=np.arange(0.0, 2000.0, 50.0), y=np.arange(0.0, 200.0, 50.0))
+    grid["ice"] = np.broadcast_to(~((grid["x"] >= 500.0) & (grid["x"] < 1500.0)),
+                                  (grid["y"].size, grid["x"].size))
+    grid["surface"] = np.full(grid["ice"].shape, 2000.0)
+    args = SimpleNamespace(smooth=50.0, coherence=0.3, cubic=False, stable_min_z=1700.0)
+    write(tmp_path, grid, {"c": d}, {"c": off_ice}, {"c": (1.0, np.zeros(8))}, np.zeros(0), [], args)
+    out = np.load(tmp_path / "radar_dh_c.npz")
+    near, far = grid["x"] < 450.0, grid["x"] >= 1550.0
+    assert np.allclose(out["dh"][:, near], -5.0) and np.allclose(out["dh"][:, far], -5.0)
