@@ -23,7 +23,9 @@ candidates and with them, on the held-out half the stationarity calibration
 did not use; how the stationarity decision does on ground of
 known state; and the ice's 24 h terms.  Drawn: ``40_joint_<campaign>.png``
 (24 h amplitude and hour of peak on the cells) and
-``41_joint_bands_<campaign>.png`` (ice motion by elevation band).
+``41_joint_bands_<campaign>.png`` (ice motion by elevation band), into
+``docs/figures`` at the default settings; any other setting draws them beside
+its own results, in ``$GPRI_WORK_ROOT/joint/<setting>/figures``.
 """
 from __future__ import annotations
 
@@ -222,7 +224,7 @@ def figures(inv, data, outdir):
         plt.close(fig)
 
 
-def main():
+def parser():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--stage", default="all", choices=("cells", "solve", "figures", "all"))
@@ -235,9 +237,31 @@ def main():
     ap.add_argument("--dem", default=os.environ.get("GPRI_DEM_LIDAR") or os.environ.get("GPRI_DEM"))
     ap.add_argument("--fallback-dem", default=os.environ.get("GPRI_DEM"))
     ap.add_argument("--workers", type=int, default=len(CAMPAIGNS))
-    ap.add_argument("--outdir", type=Path, default=Path("docs/figures"))
-    args = ap.parse_args()
-    results = WORK / "joint" / f"z{int(args.cand_min_z)}_{args.shared_noise}"
+    ap.add_argument("--outdir", type=Path, default=None,
+                    help="figures; by default docs/figures at the default settings "
+                         "and beside the results at any other")
+    return ap
+
+
+def folders(args):
+    """The results folder of these settings, and the folder their figures go to.
+
+    Only the default settings draw into ``docs/figures``; a comparison setting
+    draws beside its own results, so it never replaces the documented figures.
+    """
+    tag = f"z{int(args.cand_min_z)}_{args.shared_noise}"
+    results = WORK / "joint" / tag
+    if args.outdir is not None:
+        return results, args.outdir
+    default = parser().parse_args([])
+    if tag == f"z{int(default.cand_min_z)}_{default.shared_noise}":
+        return results, Path("docs/figures")
+    return results, results / "figures"
+
+
+def main():
+    args = parser().parse_args()
+    results, outdir = folders(args)
     if args.stage in ("cells", "all"):
         for name in args.scenes:
             if args.stage == "cells" or not cache_is_current(name, args):
@@ -253,7 +277,7 @@ def main():
     else:
         inv = J.Inversion.load(results)
     report(inv, data)
-    figures(inv, data, args.outdir)
+    figures(inv, data, outdir)
 
 
 if __name__ == "__main__":

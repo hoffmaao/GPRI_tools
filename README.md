@@ -122,6 +122,10 @@ above was built for, and it is the only example in this repository.
   by one inversion of both antennas' uncorrected series, with candidate
   reference ground whose stationarity all campaigns decide together, scored
   on held-out rock.
+- [`docs/flow.md`](docs/flow.md) — each campaign's own surface from its two
+  receive antennas, and the flow model (`baker/`) fitted to those surfaces
+  and the joint inversion's strain rates alone: one bed, a stationary
+  effective pressure, and each campaign's departure from it.
 - [`docs/observables.md`](docs/observables.md) — what else these
   acquisitions measure: the 24 h harmonic per pixel against its own error,
   coherence against temporal baseline, and the structure function of the
@@ -131,7 +135,7 @@ above was built for, and it is the only example in this repository.
 
 ```bash
 pip install -e '.[all]'      # numpy, scipy + pyproj, rasterio, matplotlib
-pytest                       # 474 tests
+pytest                       # 533 tests
 ```
 
 Only `numpy` and `scipy` are required. `pyproj` and `rasterio` are needed for

@@ -83,6 +83,15 @@ python -m baker.run --years --out radar_friction
 
 # figures: the radar surfaces (base environment)
 python -m baker.figures --radar --radar-source radar_single
+python -m baker.figures --radar --radar-source radar_joint
+
+# figures: the run -- its observations at the saved fields (Firedrake), then the plots
+python -m baker.figures --run radar_friction --predict
+python -m baker.figures --run radar_friction
+
+# docs/flow.md: its figures, and the numbers it quotes
+python -m baker.figures --run radar_friction --docs docs/figures
+python -m baker.summary --run radar_friction
 
 # tests (the model tests skip without Firedrake)
 python -m pytest baker/tests
