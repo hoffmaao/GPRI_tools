@@ -20,6 +20,10 @@ figure, the RGI outlines on every map:
   from it, in ``log N``) when the run shared one; ``logn_amp_<campaign>.png`` and
   ``logn_peak_<campaign>.png`` — the 24 h amplitude of ``log N`` and the
   UTC hour of its maximum;
+* with continuity, ``melt.png`` — the melt rate; ``ds_obs_<campaign>.png``,
+  ``ds_model_<campaign>.png`` and ``ds_misfit_<campaign>.png`` — the radar's
+  surface change since the lidar, continuity's, and their difference, on one
+  colour scale;
 * ``speed_model_<data set>.png`` — the model's surface speed over the
   whole domain, averaged over the data set's times;
 * ``speed_obs_<year>.png``, ``speed_at_obs_<year>.png``,
@@ -90,11 +94,14 @@ def predict(folder, run=None):
         source = str(f["surface_source"]) if "surface_source" in f.files else "dhdt"
         radar_dir = str(f["radar_dir"]) if "radar_dir" in f.files else ""
         friction = str(f["friction"]) if "friction" in f.files else "separate"
+        continuity = bool(f["continuity"]) if "continuity" in f.files else False
+        max_slope = float(f["continuity_max_slope"]) if "continuity_max_slope" in f.files else 90.0
         names = [k[:-len("_N_mean")] for k in f.files if k.endswith("_N_mean")]
         scenes = [n for n in names if not n.startswith("its_live_")]
         years = [int(n[len("its_live_"):]) for n in names if n.startswith("its_live_")]
         P = Problem.load(folder, mesh=mesh, surface=source, radar_dir=radar_dir or None,
-                         friction=friction, scenes=scenes, years=years)
+                         friction=friction, scenes=scenes, years=years, continuity=continuity,
+                         max_slope=max_slope)
         names = [f.name() for f in P.controls()]
         saved = [cf.load_function(mesh, n) for n in names]
     ctrl = [firedrake.Function(P.model.Q, name=n).assign(f) for n, f in zip(names, saved)]
@@ -194,11 +201,16 @@ def _misfit(path, log):
     it = [int(r.split()[1]) for r in rows]
     series = {}
     for r in rows:
-        for name, v in re.findall(r"(\S+) ([0-9.e+-]+)(?=\s|$)", r.split("misfit/obs:")[1]):
+        tail = r.split("misfit/obs:")[1]
+        for name, v in re.findall(r"(\S+) ([0-9.e+-]+)(?=\s|$)", tail):
             series.setdefault(name, []).append(float(v))
+        mass = re.search(r"\(mass ([0-9.e+-]+)\)", tail)
+        if mass:
+            series.setdefault("continuity", []).append(float(mass.group(1)))
     fig, ax = plt.subplots(figsize=(8.4, 4.4))
     for name, v in series.items():
-        ax.semilogy(it, v, lw=1.2, ls="--" if name.startswith("its_live") else "-", label=name)
+        ax.semilogy(it, v, lw=1.2, label=name,
+                    ls="--" if name.startswith("its_live") else ":" if name == "continuity" else "-")
     ax.axhline(0.5, color="0.5", lw=0.8)
     ax.set_xlabel("Iteration")
     ax.set_ylabel("Misfit (per obs.)")
@@ -448,6 +460,22 @@ def plot(folder, pred, run=None):
         peak = np.where(f[k] > 0.1 * a_hi, f[f"{name}_logN_peak"], np.nan)
         _map(out / f"logn_peak_{name}.png", grid, outlines, peak, "Peak time (UTC hr)",
              cmap="twilight", vmin=0, vmax=24)
+
+    if "melt" in f.files:
+        _map(out / "melt.png", grid, outlines, f["melt"], "Melt (m/yr)", cmap="viridis", vmin=0,
+             vmax=np.nanpercentile(f["melt"][ice], 99))
+    ds_keys = [k[:-len("_ds_obs")] for k in f.files if k.endswith("_ds_obs")]
+    if ds_keys:
+        ds_hi = np.nanpercentile(np.abs(np.concatenate(
+            [f[f"{n}_{s}"][ice] for n in ds_keys for s in ("ds_obs", "ds_model")])), 99)
+        for name in ds_keys:
+            seen = np.isfinite(f[f"{name}_ds_obs"])
+            for s, label in (("ds_obs", "Measured (m)"), ("ds_model", "Continuity (m)")):
+                _map(out / f"{s}_{name}.png", grid, outlines, np.where(seen, f[f"{name}_{s}"], np.nan),
+                     label, cmap="RdBu", vmin=-ds_hi, vmax=ds_hi)
+            _map(out / f"ds_misfit_{name}.png", grid, outlines,
+                 np.where(seen, f[f"{name}_ds_model"] - f[f"{name}_ds_obs"], np.nan),
+                 "Misfit (m)", cmap="RdBu", vmin=-ds_hi, vmax=ds_hi)
 
     speed_keys = [k for k in pred if k.endswith("_speed_grid")]
     s_hi = np.nanpercentile(np.concatenate([pred[k][ice] for k in speed_keys]), 99.5)

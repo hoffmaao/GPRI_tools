@@ -92,6 +92,9 @@ def read_log(log):
         J.append(float(head.split()[3]))
         for name, v in re.findall(r"(\S+) ([0-9.e+-]+)(?=\s|$)", tail):
             misfit.setdefault(name, []).append(float(v))
+        mass = re.search(r"\(mass ([0-9.e+-]+)\)", tail)
+        if mass:
+            misfit.setdefault("mass", []).append(float(mass.group(1)))
     return np.array(its), np.array(J), {k: np.array(v) for k, v in misfit.items()}
 
 
@@ -170,6 +173,22 @@ def fields(folder, run, grid):
         if name in misfit:
             line += f"  {misfit[name][0]:.3g} -> {misfit[name][-1]:.3g}"
         print(line)
+    if "melt" in f.files:
+        print(f"melt (m/yr of ice): on the ice {_q(percentiles(f['melt'][ice]), '{:.2f}')}, "
+              f"at those cells {_q(percentiles(f['melt'][j, i]), '{:.2f}')}")
+        if "mass" in misfit:
+            print(f"continuity misfit per mesh cell of observed change: "
+                  f"{misfit['mass'][0]:.3g} -> {misfit['mass'][-1]:.3g}")
+        print("surface change since the lidar (m) where the radar has one: measured, flux "
+              "divergence alone, with the melt, model minus measured (5/50/95)")
+        for name in cells:
+            if f"{name}_ds_obs" not in f.files:
+                continue
+            obs, seen = f[f"{name}_ds_obs"], np.isfinite(f[f"{name}_ds_obs"])
+            print(f"  {name:15s} {seen.sum():5d}  {_q(percentiles(obs[seen]))}  "
+                  f"{_q(percentiles(f[f'{name}_ds_flux'][seen]))}  "
+                  f"{_q(percentiles(f[f'{name}_ds_model'][seen]))}  "
+                  f"{_q(percentiles(f[f'{name}_ds_model'][seen] - obs[seen]))}")
 
 
 def main():

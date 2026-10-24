@@ -19,7 +19,26 @@ The unknowns, each a continuous piecewise-linear field on the mesh, are
   terms has ``N(t) = exp(q_bar + q0 + qc cos wt + qs sin wt)`` (MPa, ``t``
   the UTC hour); a campaign shorter than a day, and each ITS_LIVE year, a
   constant ``N = exp(q_bar + q0)``.  With ``friction="separate"`` there is
-  no ``q_bar`` and each ``q0`` is that data set's whole mean.
+  no ``q_bar`` and each ``q0`` is that data set's whole mean;
+* ``theta_m`` — with ``continuity=True``, the melt rate
+  ``m = m_0 exp(theta_m)`` (m/yr of ice), shared by every campaign.  It is
+  positive everywhere, so the surface mass balance is melt only and never
+  accumulation.
+
+**Mass continuity.**  With ``continuity=True`` each radar campaign's
+measured surface change since the 2015 lidar is also an observation, of
+
+    ds_k = dt_k ( -div(H_k u_k) - m ),
+
+the change that ice continuity gives over the ``dt_k`` years since the lidar
+(:data:`T_LIDAR`) with the flux of that campaign's own thickness and
+depth-averaged velocity (``u_k``, the mean over its times of day) held
+through the interval, and the melt ``m`` as the only surface source.  Its
+misfit, ``1/2 int w_k (ds_k - ds_obs)^2 dx / spacing^2`` with ``w_k`` the
+inverse variance of the radar's change, counts each mesh cell's area of
+observed ice once.  Only terrain less steep than ``max_slope`` (30 degrees,
+on the lidar) enters, which leaves out the steep summit, seen at grazing
+angles; the melt there is its prior.
 
 For every data set and time of day the momentum balance
 (:mod:`baker.physics`) is solved with that data set's surface, thickness
@@ -31,7 +50,8 @@ deviations.  The objective adds
                   + sum over data sets ( l_N^2 sum_q |grad q|^2 + q0^2 / s_0^2
                                          + (qc^2 + qs^2) / s_q^2 ) ] * weight * n_obs / area
 
-(the ``q0^2 / s_0^2`` term only with a shared ``q_bar``).
+(the ``q0^2 / s_0^2`` term only with a shared ``q_bar``), and with
+continuity ``l_m^2 |grad theta_m|^2 + theta_m^2 / s_m^2``.
 
 ``n_obs`` the number of observations assimilated, so ``weight = 1`` gives
 the regularization's mean density the weight of the misfit's mean per
@@ -57,6 +77,7 @@ from firedrake.adjoint import (Control, compute_gradient, continue_annotation,
 from .data import campaign_epoch
 from .observe import CellPoints, VelocityPoints, pair_misfit
 from .physics import ForwardModel, Parameters
+from .surface import T_LIDAR
 
 DIURNAL_W = 2 * np.pi / 24.0
 
@@ -68,6 +89,9 @@ class Regularization:
     l_N: float = 1000.0           # m, smoothing length of the log N fields
     s_q: float = 1.0              # prior spread of the 24 h terms of log N
     s_0: float = 0.5              # prior spread of each data set's mean log N about q_bar
+    m_0: float = 1.0              # m/yr of ice, prior melt rate
+    l_m: float = 1000.0           # m, smoothing length of log melt
+    s_m: float = 1.0              # prior spread of log melt
     weight: float = 1.0           # R per unit area, against the misfit per observation
 
 
@@ -113,6 +137,9 @@ class RadarStrainRates:
     epoch: float = np.nan         # decimal year
     ds: Function | None = None    # surface change since 2015, m
     surface: Function | None = None
+    ds_obs: Function | None = None  # the measured change where observed, for continuity
+    ds_w: Function | None = None    # its inverse variance, 1/m^2 (zero where not observed)
+    n_mass: float = 0.0             # mesh cells' worth of observed change
 
     @property
     def diurnal(self):
@@ -120,7 +147,7 @@ class RadarStrainRates:
 
     @property
     def n_obs(self):
-        return self.rate.size
+        return self.rate.size + self.n_mass
 
     def misfit(self, u_surface, surface, k):
         v = self.points.los_velocity(u_surface, surface)
@@ -137,6 +164,9 @@ class SurfaceVelocities:
     epoch: float = np.nan
     ds: Function | None = None
     surface: Function | None = None
+    ds_obs: Function | None = None
+    ds_w: Function | None = None
+    n_mass: float = 0.0
 
     @property
     def n_obs(self):
@@ -154,10 +184,13 @@ class Problem:
     datasets: list
     reg: Regularization = field(default_factory=Regularization)
     shared_friction: bool = True
+    continuity: bool = False
+    spacing: float = 150.0
 
     @classmethod
     def load(cls, folder, spacing=150.0, scenes=None, years=None, params=None, reg=None,
-             mesh=None, surface="radar", radar_dir=None, friction="shared"):
+             mesh=None, surface="radar", radar_dir=None, friction="shared", continuity=False,
+             max_slope=30.0):
         """From the files :mod:`baker.prepare` wrote to ``folder``.
 
         ``scenes`` and ``years`` pick campaigns and ITS_LIVE years (default:
@@ -172,12 +205,17 @@ class Problem:
         ``radar_dir`` is the folder under ``folder`` holding the radar's
         ``radar_dh_<scene>.npz`` (e.g. ``radar_single``, :mod:`baker.radar_joint`).
         ``friction`` is ``"shared"`` (a stationary ``q_bar`` under every data
-        set) or ``"separate"``.
+        set) or ``"separate"``.  ``continuity`` adds the melt rate and each
+        radar campaign's measured change as an observation of ice continuity
+        (needs ``surface="radar"``), only where the 2015 lidar surface is less
+        steep than ``max_slope`` (degrees).
         """
         from .data import Observations, SurfaceVelocity
         folder = Path(folder)
         g = np.load(folder / "grid.npz")
         x, y = g["x"], g["y"]
+        if continuity and surface != "radar":
+            raise ValueError("continuity needs the radar's measured surface change")
         if mesh is None:
             mesh = rectangle_mesh((x[0], y[0], x[-1], y[-1]), spacing)
         Q = firedrake.FunctionSpace(mesh, "CG", 1)
@@ -210,6 +248,8 @@ class Problem:
             for d in datasets:
                 changes[d.name] = np.where(g["ice"], sf["dhdt"], 0.0) * (d.epoch - float(sf["t_ref"]))
         elif surface == "radar":
+            gy, gx = np.gradient(g["surface"], y, x)
+            slope = np.degrees(np.arctan(np.hypot(gx, gy)))
             radar = {}
             where = folder / radar_dir if radar_dir else folder
             for p in where.glob("radar_dh_*.npz"):
@@ -220,6 +260,21 @@ class Problem:
             for d in datasets:
                 if d.name in radar:
                     changes[d.name] = np.nan_to_num(radar[d.name][0])
+                    if continuity:
+                        dh, sd = radar[d.name]
+                        seen = np.isfinite(dh) & (slope < max_slope)
+                        w = np.where(seen, 1.0 / np.maximum(np.nan_to_num(sd, nan=1.0), 0.1) ** 2, 0.0)
+                        # box averages over the mesh spacing; a node counts where most of
+                        # its box is observed, with the mean weight and the weighted mean
+                        num = grid_to_mesh(Q, x, y, np.where(seen, dh, 0.0) * w, smooth=spacing)
+                        den = grid_to_mesh(Q, x, y, w, smooth=spacing)
+                        cov = grid_to_mesh(Q, x, y, seen.astype(float), smooth=spacing)
+                        kept = cov.dat.data_ro > 0.5
+                        d.ds_w = Function(Q, name=f"{d.name}_surface_change_weight")
+                        d.ds_w.dat.data[kept] = den.dat.data_ro[kept] / cov.dat.data_ro[kept]
+                        d.ds_obs = Function(Q, name=f"{d.name}_surface_change_observed")
+                        d.ds_obs.dat.data[kept] = num.dat.data_ro[kept] / den.dat.data_ro[kept]
+                        d.n_mass = float(seen.sum()) * (x[1] - x[0]) * (y[1] - y[0]) / spacing ** 2
                 elif d.name.startswith("its_live_"):
                     same = [v for k, v in radar.items() if k.startswith(d.name[-4:])]
                     if same:
@@ -239,7 +294,8 @@ class Problem:
                 d.surface = Function(Q, name=f"{d.name}_surface").interpolate(s + d.ds)
         if friction not in ("shared", "separate"):
             raise ValueError(f"unknown friction {friction!r}")
-        return cls(model, h, datasets, reg or Regularization(), friction == "shared")
+        return cls(model, h, datasets, reg or Regularization(), friction == "shared",
+                   continuity, spacing)
 
     @property
     def n_obs(self):
@@ -258,12 +314,38 @@ class Problem:
             if d.diurnal:
                 ctrl += [Function(Q, name=f"{d.name}_log_N_cos"),
                          Function(Q, name=f"{d.name}_log_N_sin")]
+        if self.continuity:
+            ctrl.append(Function(Q, name="log_melt_ratio"))
         return ctrl
+
+    def _friction_ctrl(self, ctrl):
+        """The controls of ``log N``: all but ``theta_H`` and, with continuity, ``theta_m``."""
+        return list(ctrl[1:-1] if self.continuity else ctrl[1:])
+
+    def melt(self, ctrl):
+        """The melt rate ``m_0 exp(theta_m)`` (m/yr of ice); zero without continuity."""
+        if not self.continuity:
+            return Constant(0.0)
+        return Constant(self.reg.m_0) * exp(ctrl[-1])
+
+    @staticmethod
+    def depth_averaged(zs):
+        """The mean over a data set's times of the depth-averaged velocity."""
+        return sum(firedrake.split(z)[0] for z in zs) / len(zs)
+
+    def flux_change(self, d, H, u):
+        """``dt_k (-div(H u))``, the change continuity gives without melt, m."""
+        return Constant(d.epoch - T_LIDAR) * -firedrake.div(H * u)
+
+    def mass_misfit(self, d, H, u, melt):
+        """``1/2 int w (ds_model - ds_obs)^2 dx / spacing^2``, assembled."""
+        r = self.flux_change(d, H, u) - Constant(d.epoch - T_LIDAR) * melt - d.ds_obs
+        return assemble(Constant(0.5 / self.spacing ** 2) * d.ds_w * r ** 2 * dx(self.model.mesh))
 
     def split(self, ctrl):
         """``(theta_H, [q terms of each data set])``; with a shared ``q_bar``
         each data set's first term is ``q_bar + q0``."""
-        theta_H, rest, out = ctrl[0], list(ctrl[1:]), []
+        theta_H, rest, out = ctrl[0], self._friction_ctrl(ctrl), []
         if self.shared_friction:
             q_bar, rest = rest[0], rest[1:]
         for d in self.datasets:
@@ -275,7 +357,7 @@ class Problem:
 
     def friction_terms(self, ctrl):
         """``(q_bar or None, [the data sets' own terms q0 (, qc, qs)])``."""
-        rest, out = list(ctrl[1:]), []
+        rest, out = self._friction_ctrl(ctrl), []
         q_bar = None
         if self.shared_friction:
             q_bar, rest = rest[0], rest[1:]
@@ -335,6 +417,10 @@ class Problem:
                 R = R + q[0] ** 2 / Constant(r.s_0 ** 2)
             if len(q) == 3:
                 R = R + (q[1] ** 2 + q[2] ** 2) / Constant(r.s_q ** 2)
+        if self.continuity:
+            theta_m = ctrl[-1]
+            R = R + (Constant(r.l_m ** 2) * inner(grad(theta_m), grad(theta_m))
+                     + theta_m ** 2 / Constant(r.s_m ** 2))
         return Constant(0.5 * r.weight * self.n_obs / area) * R * dx
 
     # ------------------------------------------------------------- inversion
@@ -342,19 +428,32 @@ class Problem:
         """Taped: the misfits of every data set and time, plus the regularization.
 
         ``guesses`` are converged solutions near ``ctrl``; each is overwritten.
-        Returns ``(J, misfit of each data set)``.
+        Returns ``(J, misfit of each data set)``; with continuity a data set's
+        misfit includes its mass term, and one more entry is the sum of those.
         """
         theta_H, qs = self.split(ctrl)
         hs = [Function(self.model.Q).interpolate(self.thickness(theta_H, d)) for d in self.datasets]
         J = assemble(self.regularization(ctrl))
         parts = [0.0] * len(self.datasets)
+        solved = [[] for _ in self.datasets]
         for j, (i, k) in enumerate(self.states()):
             d = self.datasets[i]
             N = Function(self.model.Q).interpolate(self.effective_pressure(qs[i], d.hours[k]))
             z = self.model.solve_from(hs[i], N, guesses[j], s=self.surface(d))
+            solved[i].append(z)
             m = d.misfit(self.model.surface_velocity(z, hs[i], N), self.surface(d), k)
             parts[i] += float(m)
             J = J + m
+        if self.continuity:
+            melt, mass = self.melt(ctrl), 0.0
+            for i, d in enumerate(self.datasets):
+                if d.ds_w is None:
+                    continue
+                m = self.mass_misfit(d, hs[i], self.depth_averaged(solved[i]), melt)
+                parts[i] += float(m)
+                mass += float(m)
+                J = J + m
+            parts.append(mass)
         return J, parts
 
     def invert(self, ctrl=None, maxiter=50, log=print):
@@ -399,6 +498,9 @@ class Problem:
         def report(x=None):
             terms = "  ".join(f"{d.name} {p / d.n_obs:.3g}"
                               for d, p in zip(self.datasets, last["parts"]))
+            if self.continuity:
+                n_mass = sum(d.n_mass for d in self.datasets)
+                terms += f"  (mass {last['parts'][-1] / max(n_mass, 1):.3g})"
             log(f"iteration {state['it']:3d}  J {last['J']:.6g}  misfit/obs: {terms}")
             state["it"] += 1
 

@@ -9,6 +9,7 @@ from firedrake import Constant, Function, SpatialCoordinate  # noqa: E402
 from firedrake.adjoint import (Control, ReducedFunctional, continue_annotation,  # noqa: E402
                                get_working_tape, pause_annotation, taylor_test)
 
+from baker.inverse import Problem, RadarStrainRates  # noqa: E402
 from baker.observe import CellPoints, pair_misfit, pair_rates  # noqa: E402
 from baker.physics import ForwardModel  # noqa: E402
 
@@ -62,4 +63,37 @@ def test_pair_misfit_gradient_is_exact(slab):
     assert np.allclose(pair_rates(v.dat.data_ro, pairs, dist).shape, (2,))
     d = Function(model.Q).assign(0.05)
     assert taylor_test(rf, q.copy(deepcopy=True), d) > 1.9
+    get_working_tape().clear_tape()
+
+
+def test_continuity_is_melt_only_and_its_gradient_is_exact(slab):
+    model, h = slab
+    xy = np.array([[800.0, 900.0], [1000.0, 900.0], [1200.0, 1100.0]])
+    los = np.tile([-0.6, -0.8, 0.0], (3, 1))
+    d = RadarStrainRates("20170803", CellPoints(model.mesh, xy, los), np.array([np.nan]),
+                         np.array([[0, 1], [1, 2]]), np.array([200.0, 283.0]),
+                         np.array([[0.01, -0.02]]), np.array([[0.01, 0.01]]), epoch=2017.6)
+    d.ds = Function(model.Q).assign(0.0)
+    d.ds_w = Function(model.Q).assign(1.0)
+    P = Problem(model, h, [d], continuity=True, spacing=200.0)
+    ctrl = P.controls()
+    ctrl[-1].assign(-30.0)
+    assert float(firedrake.assemble(P.melt(ctrl) * firedrake.dx(model.mesh))) > 0.0
+    ctrl[-1].assign(0.0)
+    zs = P.solve_all(ctrl)
+    H = Function(model.Q).interpolate(P.thickness(ctrl[0], d))
+    u = P.depth_averaged([z.copy(deepcopy=True) for z in zs])
+    dt = d.epoch - 2015.6927
+    # observed change = continuity with the prior melt: no mass misfit there, some elsewhere
+    d.ds_obs = P.flux_change(d, H.copy(deepcopy=True), u) - Constant(dt * P.reg.m_0)
+    assert abs(P.mass_misfit(d, H, u, P.melt(ctrl))) < 1e-6
+    assert P.mass_misfit(d, H, u, 2 * P.melt(ctrl)) > 1.0
+    continue_annotation()
+    J, parts = P.objective(ctrl, zs)
+    controls = [ctrl[0], ctrl[-1]]
+    rf = ReducedFunctional(J, [Control(c) for c in controls])
+    pause_annotation()
+    assert len(parts) == 2
+    d0 = [Function(model.Q).assign(0.02), Function(model.Q).assign(0.05)]
+    assert taylor_test(rf, [c.copy(deepcopy=True) for c in controls], d0) > 1.9
     get_working_tape().clear_tape()
