@@ -200,8 +200,9 @@ python -m baker.prepare
 # their held-out scores and shared term (printed), into radar_single/ and radar_joint/
 python -m baker.radar_dem --scene all
 python -m baker.radar_joint
-# the inversion (Firedrake): the radar campaigns only, --years with no years
-python -m baker.run --years --out radar_friction
+# the inversion (Firedrake): the radar campaigns only, --years with no years,
+# without mass continuity (now the default)
+python -m baker.run --years --no-continuity --out radar_friction
 # the model's observations at the saved fields (Firedrake), then the plots
 python -m baker.figures --run radar_friction --predict
 python -m baker.figures --run radar_friction
