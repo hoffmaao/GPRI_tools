@@ -17,7 +17,8 @@ Reads ``$GPRI_WORK_ROOT/baker/`` (:mod:`baker.prepare`) and writes, there,
   its maximum); with continuity (the default), ``melt`` (m/yr of ice, the
   melt-only surface source) and for each radar campaign ``<name>_ds_flux``
   and ``<name>_ds_model`` (m: the change since the lidar from the flux
-  divergence alone, and with the melt) beside ``<name>_ds_obs``, the radar's.
+  divergence alone, and with the melt) beside ``<name>_ds_obs``, the radar's,
+  all three where the change is weighted in the inversion (NaN elsewhere).
 """
 from __future__ import annotations
 
@@ -120,10 +121,10 @@ def main():
             Hk = firedrake.Function(P.model.Q).interpolate(P.thickness(theta_H, d))
             u = P.depth_averaged([z for z, (j, _) in zip(zs, states) if j == i])
             flux = firedrake.Function(DG0).interpolate(P.flux_change(d, Hk, u))
-            out[f"{d.name}_ds_flux"] = on_grid(flux, x, y, ice)
+            seen = ice & (on_grid(d.ds_w, x, y, ice) > 0)
+            out[f"{d.name}_ds_flux"] = on_grid(flux, x, y, seen)
             out[f"{d.name}_ds_model"] = out[f"{d.name}_ds_flux"] - (d.epoch - T_LIDAR) * out["melt"]
-            seen = on_grid(d.ds_w, x, y, ice) > 0
-            out[f"{d.name}_ds_obs"] = np.where(seen, on_grid(d.ds_obs, x, y, ice), np.nan)
+            out[f"{d.name}_ds_obs"] = on_grid(d.ds_obs, x, y, seen)
     np.savez_compressed(out_dir / "fields.npz", **out)
     print(f"-> {out_dir / 'fields.h5'}, {out_dir / 'fields.npz'}")
 

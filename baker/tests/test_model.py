@@ -9,7 +9,7 @@ from firedrake import Constant, Function, SpatialCoordinate  # noqa: E402
 from firedrake.adjoint import (Control, ReducedFunctional, continue_annotation,  # noqa: E402
                                get_working_tape, pause_annotation, taylor_test)
 
-from baker.inverse import Problem, RadarStrainRates  # noqa: E402
+from baker.inverse import Problem, RadarStrainRates, observed_change  # noqa: E402
 from baker.observe import CellPoints, pair_misfit, pair_rates  # noqa: E402
 from baker.physics import ForwardModel  # noqa: E402
 
@@ -97,3 +97,23 @@ def test_continuity_is_melt_only_and_its_gradient_is_exact(slab):
     d0 = [Function(model.Q).assign(0.02), Function(model.Q).assign(0.05)]
     assert taylor_test(rf, [c.copy(deepcopy=True) for c in controls], d0) > 1.9
     get_working_tape().clear_tape()
+
+
+def test_observed_change_weighs_only_elements_with_every_node_kept(slab):
+    model, _ = slab
+    x = y = np.arange(0.0, 2001.0, 20.0)
+    X, _ = np.meshgrid(x, y)
+    seen = X < 1000.0
+    dh = np.where(seen, -5.0, np.nan)
+    w = np.where(seen, 4.0, 0.0)
+    ds_w, ds_obs, n_mass = observed_change(model.Q, x, y, dh, w, seen, 200.0)
+    assert ds_w.ufl_element().family() == "Discontinuous Lagrange"
+    assert ds_w.ufl_element().degree() == 0
+    assert ds_w.dat.data_ro.max() == pytest.approx(4.0)
+    assert ds_w.at((500.0, 1000.0)) > 0 and ds_w.at((1500.0, 1000.0)) == 0
+    # no blending toward an unkept node's zero inside the weighted elements
+    r = firedrake.assemble(ds_w * (ds_obs + 5.0) ** 2 * firedrake.dx(model.mesh))
+    assert abs(r) < 1e-8
+    area = firedrake.assemble(firedrake.conditional(ds_w > 0, 1.0, 0.0) * firedrake.dx(model.mesh))
+    assert n_mass == pytest.approx(area / 200.0 ** 2)
+    assert 0 < area < 1000.0 * 2000.0

@@ -70,7 +70,7 @@ from pathlib import Path
 import numpy as np
 
 import firedrake
-from firedrake import Constant, Function, assemble, dx, exp, grad, inner
+from firedrake import Constant, Function, assemble, conditional, dx, exp, grad, inner
 from firedrake.adjoint import (Control, compute_gradient, continue_annotation,
                                get_working_tape, pause_annotation)
 
@@ -123,6 +123,34 @@ def grid_to_mesh(Q, x, y, values, fill=0.0, smooth=0.0):
     return out
 
 
+def observed_change(Q, x, y, dh, w, seen, spacing):
+    """The measured change ``dh`` (weight ``w``, observed where ``seen``) on the mesh.
+
+    Box averages over the mesh spacing; a node is kept where most of its box
+    is observed, with the weighted mean change (``ds_obs``, CG1) and the mean
+    weight.  The weight ``ds_w`` is DG0: on each element whose three nodes
+    are all kept, the mean of their weights, and zero elsewhere, so the
+    misfit never weighs a blend toward an unobserved node.  ``n_mass`` is the
+    weighted area in mesh cells.
+    """
+    num = grid_to_mesh(Q, x, y, np.where(seen, dh, 0.0) * w, smooth=spacing)
+    den = grid_to_mesh(Q, x, y, w, smooth=spacing)
+    cov = grid_to_mesh(Q, x, y, seen.astype(float), smooth=spacing)
+    c = cov.dat.data_ro_with_halos
+    kept = c > 0.5
+    node_w = np.where(kept, den.dat.data_ro_with_halos / np.where(kept, c, 1.0), 0.0)
+    ds_obs = Function(Q)
+    ds_obs.dat.data_with_halos[kept] = (num.dat.data_ro_with_halos[kept]
+                                        / den.dat.data_ro_with_halos[kept])
+    D = firedrake.FunctionSpace(Q.mesh(), "DG", 0)
+    cells = Q.cell_node_map().values_with_halo
+    full = kept[cells].all(axis=1)
+    ds_w = Function(D)
+    ds_w.dat.data_with_halos[D.cell_node_map().values_with_halo[full, 0]] = node_w[cells[full]].mean(axis=1)
+    n_mass = float(assemble(conditional(ds_w > 0, 1.0, 0.0) * dx(Q.mesh()))) / spacing ** 2
+    return ds_w, ds_obs, n_mass
+
+
 # ------------------------------------------------------------------ data sets
 @dataclass
 class RadarStrainRates:
@@ -138,7 +166,7 @@ class RadarStrainRates:
     ds: Function | None = None    # surface change since 2015, m
     surface: Function | None = None
     ds_obs: Function | None = None  # the measured change where observed, for continuity
-    ds_w: Function | None = None    # its inverse variance, 1/m^2 (zero where not observed)
+    ds_w: Function | None = None    # its inverse variance, 1/m^2, DG0 (zero where not observed)
     n_mass: float = 0.0             # mesh cells' worth of observed change
 
     @property
@@ -264,17 +292,9 @@ class Problem:
                         dh, sd = radar[d.name]
                         seen = np.isfinite(dh) & (slope < max_slope)
                         w = np.where(seen, 1.0 / np.maximum(np.nan_to_num(sd, nan=1.0), 0.1) ** 2, 0.0)
-                        # box averages over the mesh spacing; a node counts where most of
-                        # its box is observed, with the mean weight and the weighted mean
-                        num = grid_to_mesh(Q, x, y, np.where(seen, dh, 0.0) * w, smooth=spacing)
-                        den = grid_to_mesh(Q, x, y, w, smooth=spacing)
-                        cov = grid_to_mesh(Q, x, y, seen.astype(float), smooth=spacing)
-                        kept = cov.dat.data_ro > 0.5
-                        d.ds_w = Function(Q, name=f"{d.name}_surface_change_weight")
-                        d.ds_w.dat.data[kept] = den.dat.data_ro[kept] / cov.dat.data_ro[kept]
-                        d.ds_obs = Function(Q, name=f"{d.name}_surface_change_observed")
-                        d.ds_obs.dat.data[kept] = num.dat.data_ro[kept] / den.dat.data_ro[kept]
-                        d.n_mass = float(seen.sum()) * (x[1] - x[0]) * (y[1] - y[0]) / spacing ** 2
+                        d.ds_w, d.ds_obs, d.n_mass = observed_change(Q, x, y, dh, w, seen, spacing)
+                        d.ds_w.rename(f"{d.name}_surface_change_weight")
+                        d.ds_obs.rename(f"{d.name}_surface_change_observed")
                 elif d.name.startswith("its_live_"):
                     same = [v for k, v in radar.items() if k.startswith(d.name[-4:])]
                     if same:
