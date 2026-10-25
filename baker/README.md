@@ -48,6 +48,17 @@ height change measured by the radar's two receive antennas
   height change (`--surface radar`, from `--radar-dir`), the
   ASTER/ICESat-2/GEDI rate times the time since 2015 (`--surface dhdt`,
   `baker/surface.py`), or zero (`--surface lidar`).
+* **Mass continuity** (`--continuity`, the default; needs `--surface
+  radar`): each radar campaign's measured change is also an observation of
+  `ds_k = dt_k (-div(H_k u_k) - m)`, ice continuity over the `dt_k` years
+  since the lidar (11 Sep 2015) with that campaign's thickness and
+  depth-averaged velocity (the mean over its times of day) and a melt rate
+  `m = m_0 exp(theta_m)` (m/yr of ice, `--melt-prior` sets `m_0`) shared by
+  every campaign.  `m` is positive everywhere, so the surface source is melt
+  only, never accumulation.  The misfit weights each change by its inverse
+  variance and counts each mesh cell's area of observed ice once, on
+  terrain less steep than `--continuity-max-slope` (30 degrees on the lidar;
+  the steep summit is seen at grazing angles and left out).
 * **Radar surfaces**: the phase between the two receive antennas at each
   epoch, stacked over 96 epochs and fitted on ice-free ground above 1700 m
   to the lidar, with each campaign's effective baseline, phase ramp, `1/R`
@@ -58,8 +69,9 @@ height change measured by the radar's two receive antennas
 * **Prior and regularization**: `H = H_prior exp(theta_H)`, with `H_prior`
   from Farinotti et al. (2019); smoothness and size penalties on `theta_H`,
   smoothness on `q_bar` and on each data set's own `log N` terms, and size
-  penalties on `q0` (spread `s_0`) and the 24 h terms (`baker/inverse.py`,
-  `Regularization`).
+  penalties on `q0` (spread `s_0`) and the 24 h terms, and with continuity
+  smoothness and size penalties on `theta_m` (`l_m`, `s_m`;
+  `baker/inverse.py`, `Regularization`).
 * **All on one mesh**: every data set is put in UTM 10 N, on one rectangle
   covering every campaign's cells.
 
@@ -78,8 +90,10 @@ python -m baker.radar_dem --scene all
 python -m baker.radar_joint
 
 # 3. the inversion (Firedrake environment): fields.h5 and fields.npz;
-#    radar campaigns only, each over its own radar surface
-python -m baker.run --years --out radar_friction
+#    radar campaigns only, each over its own radar surface, with mass
+#    continuity and a melt-only source; --no-continuity for the run without
+python -m baker.run --years --out radar_continuity
+python -m baker.run --years --no-continuity --out radar_friction
 
 # figures: the radar surfaces (base environment)
 python -m baker.figures --radar --radar-source radar_single
